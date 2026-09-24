@@ -375,14 +375,20 @@ function EnemyService.damage(entity, amount, attacker, headshot)
 		if entity.bossFill then
 			entity.bossFill.Size = UDim2.fromScale(fraction, 1)
 		end
-		Net.get("BossState"):FireAllClients({
-			active = true,
-			name = entity.def.name,
-			title = entity.def.title,
-			health = math.max(0, entity.health),
-			maxHealth = entity.maxHealth,
-			final = entity.def.isFinal == true,
-		})
+		-- the in-world nameplate above updates every hit; the screen-wide bar is
+		-- a broadcast, so throttle it to ~10 Hz (and always send the killing blow)
+		local now = os.clock()
+		if entity.health <= 0 or not entity.bossPushAt or now - entity.bossPushAt >= 0.1 then
+			entity.bossPushAt = now
+			Net.get("BossState"):FireAllClients({
+				active = true,
+				name = entity.def.name,
+				title = entity.def.title,
+				health = math.max(0, entity.health),
+				maxHealth = entity.maxHealth,
+				final = entity.def.isFinal == true,
+			})
+		end
 		-- phase transitions
 		local phases = entity.def.phases
 		if phases then

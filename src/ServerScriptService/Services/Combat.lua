@@ -110,15 +110,18 @@ local function resolveShot(player, direction)
 	local damageMult = S.PlayerService.tonicAgg(player).damageMult
 	local params = shootParams(character)
 	local pellets = math.max(1, inst.pellets or 1)
-	local totalHits = 0
 	local endPoints = {}
 	local chainLinks = nil
+	-- a shotgun blast is one hitmarker, not eight, so feedback is aggregated
+	local feedback = { hit = false, headshot = false, killed = false, boss = false }
 
 	for _ = 1, pellets do
 		local dir = applySpread(direction, inst.spread)
 		local remainingPierce = inst.pierce or 0
 		local rayOrigin = origin
 		local rayParams = params
+		-- piercing rounds accumulate exclusions so they never re-hit a target
+		local pierceFilter = { character, S.Map.fxFolder }
 		local hitThisPellet = {}
 		local travelled = 0
 		local landed = origin + dir * inst.range
@@ -138,18 +141,15 @@ local function resolveShot(player, direction)
 				local damage = inst.damage * damageMult * (isHead and inst.headMult or 1)
 				local before = entity.health
 				S.EnemyService.damage(entity, damage, player, isHead)
-				totalHits = totalHits + 1
 				hitThisPellet[entity.uid] = true
 
 				if before > 0 and entity.health > 0 then
 					S.Economy.add(player, GameConfig.SalvagePerHit)
 				end
-				Net.get("Hitmarker"):FireClient(player, {
-					hit = true,
-					headshot = isHead,
-					killed = entity.health <= 0,
-					boss = entity.isBoss,
-				})
+				feedback.hit = true
+				feedback.headshot = feedback.headshot or isHead
+				feedback.killed = feedback.killed or entity.health <= 0
+				feedback.boss = feedback.boss or entity.isBoss
 
 				if inst.chain then
 					chainLinks = chainFrom(entity, inst, player, inst.chain, hitThisPellet)
@@ -159,14 +159,13 @@ local function resolveShot(player, direction)
 					remainingPierce = remainingPierce - 1
 					travelled = travelled + (result.Position - rayOrigin).Magnitude + 0.5
 					rayOrigin = result.Position + dir * 0.5
+					if entity.model then
+						table.insert(pierceFilter, entity.model)
+					end
 					local nextParams = RaycastParams.new()
 					nextParams.FilterType = Enum.RaycastFilterType.Exclude
 					nextParams.IgnoreWater = true
-					local filter = { character, S.Map.fxFolder }
-					if entity.model then
-						table.insert(filter, entity.model)
-					end
-					nextParams.FilterDescendantsInstances = filter
+					nextParams.FilterDescendantsInstances = pierceFilter
 					rayParams = nextParams
 				else
 					break
@@ -180,6 +179,10 @@ local function resolveShot(player, direction)
 			explode(landed, inst.explosive.radius, inst.explosive.damage * damageMult, player, inst.tracerColor)
 		end
 		table.insert(endPoints, landed)
+	end
+
+	if feedback.hit then
+		Net.get("Hitmarker"):FireClient(player, feedback)
 	end
 
 	Net.get("ShotFx"):FireAllClients({

@@ -1,0 +1,17 @@
+{
+  "name": "necrotide-last-stand",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Round-based undead survival shooter for Roblox. Builds a ready-to-open .rbxlx place file and a drag-in .rbxmx model from plain Luau sources.",
+  "scripts": {
+    "check": "node tools/check-lua.js",
+    "build": "node tools/build.js",
+    "verify": "node tools/verify.js",
+    "test": "node tools/sim.js",
+    "all": "npm run check && npm run build && npm run verify && npm run test"
+  },
+  "devDependencies": {
+    "fengari": "^0.1.5",
+    "luaparse": "^0.3.1"
+  }
+}

@@ -22,15 +22,29 @@ Two ways, pick one.
 3. Press **Play**. That's it — the arena, lighting, HUD and waves all build
    themselves at runtime.
 
+> The editor viewport looks empty before you press Play. That is expected: the
+> place file contains only scripts, and `MapBuilder.lua` generates the whole
+> arena when the game starts.
+
 ### 2. Drag the model into a place you already have
 
 1. Download **`build/NecrotideLastStand.rbxmx`**.
 2. In Studio, with your own place open: **right-click Workspace → Insert from
-   File…** and pick it (or drag the file onto the viewport).
-3. Press **Play** once. An `Installer` script moves the scripts into
-   `ReplicatedStorage`, `ServerScriptService` and `StarterPlayerScripts`, then
-   deletes itself. **Stop**, then press **Play** again to run the installed game.
-4. Save your place. The install is permanent from then on.
+   File…** and pick it (or drag the file onto the viewport). You get a folder
+   named `NecrotideLastStand`.
+3. Then either:
+   - **Just press Play.** The `Boot` script installs everything and the game
+     runs immediately. Like any runtime change, that install is discarded when
+     you stop — fine for a look, but you have to press Play from the model each
+     time.
+   - **Install permanently:** open the **Command Bar** (View → Command Bar) and
+     run this one line in edit mode, then save your place:
+     ```lua
+     require(workspace.NecrotideLastStand.Installer)
+     ```
+     The scripts move into `ReplicatedStorage`, `ServerScriptService` and
+     `StarterPlayer.StarterPlayerScripts`, the model deletes itself, and the
+     install is saved with the place.
 
 > The game builds its own map into `Workspace.Ashvault` at runtime. If your place
 > already has a baseplate or other geometry, the arena will be dropped on top of
@@ -138,7 +152,7 @@ npm run all        # check + build + verify + test
 
 | Script | What it does |
 | --- | --- |
-| `npm run check` | Syntax-checks all 21 Lua files with `luaparse` |
+| `npm run check` | Syntax-checks every Lua file with `luaparse` |
 | `npm run build` | Regenerates `build/*.rbxlx` and `build/*.rbxmx` from `src/` |
 | `npm run verify` | Parses the generated XML, confirms the instance tree, and statically resolves every `Net.get`, `require`, `S.Service.method` and `GameConfig.Key` reference |
 | `npm run test` | Runs the real game modules headlessly against a Roblox API stub |
@@ -165,7 +179,7 @@ Roblox can't be scripted from CI, so this project verifies itself three ways:
    downs and revives a player, spawns the Rust Warden and phases it, purges a
    wave, tears and repairs a barricade, and prints the balance table.
 
-Current state: **21 files parsed, 66 static checks, 193 runtime checks, 0
+Current state: **24 files parsed, 72 static checks, 194 runtime checks, 0
 failures.**
 
 ```

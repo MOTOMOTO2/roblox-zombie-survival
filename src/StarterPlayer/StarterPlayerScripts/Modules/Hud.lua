@@ -638,7 +638,7 @@ function Hud.setLoadout(data)
 
 	if data.reloading then
 		state.reloadStart = os.clock()
-		state.reloadDuration = math.max(0.1, (active and active.reloadTime) or 1)
+		state.reloadDuration = math.max(0.1, data.reloadDuration or (active and active.reloadTime) or 1)
 		ui.reloadTrack.Visible = true
 	else
 		ui.reloadTrack.Visible = false

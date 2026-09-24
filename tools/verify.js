@@ -198,11 +198,29 @@ check(
 );
 check(placeItems.some((n) => n.class === "Workspace"), "place declares Workspace");
 
-// model file: payload disabled, installer enabled
-const installerMatch = modelText.match(
-  /<Item class="Script" referent="[^"]+">\s*<Properties>\s*<string name="Name">Installer<\/string>[\s\S]*?<bool name="Disabled">(\w+)<\/bool>/
+// model file: payload disabled, installer requireable, Boot script enabled
+const modelTree = new Map(modelItems.map((node) => [pathOf(node), node]));
+const installerNode = modelTree.get(`${NAME}/Installer`);
+check(
+  installerNode !== undefined && installerNode.class === "ModuleScript",
+  "model Installer is a ModuleScript (runnable from the Command Bar)",
+  installerNode && installerNode.class
 );
-check(installerMatch && installerMatch[1] === "false", "model Installer script is enabled");
+const bootNode = modelTree.get(`${NAME}/Boot`);
+check(bootNode !== undefined && bootNode.class === "Script", "model has a Boot script");
+const bootMatch = modelText.match(
+  /<string name="Name">Boot<\/string>[\s\S]*?<bool name="Disabled">(\w+)<\/bool>/
+);
+check(bootMatch && bootMatch[1] === "false", "model Boot script is enabled");
+check(
+  modelText.includes(`require(workspace.${NAME}.Installer)`),
+  "model documents the Command Bar install line"
+);
+check(
+  modelTree.has(`${NAME}/Payload/ReplicatedStorage/NecrotideShared/GameConfig`),
+  "model payload carries the shared modules"
+);
+check(modelTree.has(`${NAME}/Payload/StarterPlayerScripts/ClientMain`), "model payload carries the client");
 const bootstrapInModel = modelText.match(
   /<string name="Name">Bootstrap<\/string>[\s\S]*?<bool name="Disabled">(\w+)<\/bool>/
 );
@@ -309,6 +327,15 @@ check(tonicIds.size >= 5, `tonic roster size ${tonicIds.size}`);
 const mapSource = fs.readFileSync(path.join(servicesDir, "MapBuilder.lua"), "utf8");
 const badWallBuys = [...mapSource.matchAll(/weapon = "(\w+)"/g)].map((m) => m[1]).filter((id) => !weaponIds.has(id));
 check(badWallBuys.length === 0, "every Armory Rack weapon id exists", badWallBuys.join(", "));
+// an Armory Rack for a crate-only weapon would be unpriceable
+const wallBuyIds = [...mapSource.matchAll(/weapon = "(\w+)"/g)].map((m) => m[1]);
+const unpriced = wallBuyIds.filter((id) => {
+  const block = weaponSource.split(`id = "${id}"`)[1] || "";
+  const upToNext = block.split("\n\t},")[0];
+  return /wallCost = nil/.test(upToNext) || !/wallCost = \d+/.test(upToNext);
+});
+check(unpriced.length === 0, "every Armory Rack weapon has a wall price", unpriced.join(", "));
+
 const badTonicSpots = [...mapSource.matchAll(/tonic = "(\w+)"/g)].map((m) => m[1]).filter((id) => !tonicIds.has(id));
 check(badTonicSpots.length === 0, "every Tonic Still id exists", badTonicSpots.join(", "));
 

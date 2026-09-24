@@ -58,10 +58,21 @@ function BarrierService.isOpen(barrier)
 	return intactCount(barrier) == 0
 end
 
--- Rips a board loose. Called every tick by an enemy pressed against the gap.
+-- Rips a board loose. Called every tick by every enemy pressed against the gap,
+-- so the progress from the first caller in a tick counts in full and everyone
+-- else only adds a small crowd bonus. Without this, ten husks at one window
+-- would strip five boards in well under a second.
+local CROWD_BONUS = 0.15
+
 function BarrierService.tear(barrier, dt, entity)
 	local state = boardState(barrier)
-	state.tearProgress = state.tearProgress + dt
+	local now = os.clock()
+	if state.lastTearAt and now - state.lastTearAt < 0.02 then
+		state.tearProgress = state.tearProgress + dt * CROWD_BONUS
+	else
+		state.lastTearAt = now
+		state.tearProgress = state.tearProgress + dt
+	end
 	local tearTime = GameConfig.BoardTearTime
 	if state.tearProgress < tearTime then
 		-- rattle the topmost intact board so the players can see it going

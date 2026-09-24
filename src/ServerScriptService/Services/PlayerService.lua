@@ -403,12 +403,15 @@ function PlayerService.init(services)
 	local function onPlayer(player)
 		ensure(player)
 		PlayerService.pushTonics(player)
-		if player.Character then
-			onCharacter(player, player.Character)
-		end
 		player.CharacterAdded:Connect(function(character)
 			onCharacter(player, character)
 		end)
+		if player.Character then
+			onCharacter(player, player.Character)
+		else
+			-- CharacterAutoLoads is off, so we spawn people in ourselves
+			player:LoadCharacter()
+		end
 	end
 
 	for _, player in ipairs(Players:GetPlayers()) do

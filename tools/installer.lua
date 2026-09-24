@@ -1,8 +1,15 @@
 -- Necrotide Installer (only used by the .rbxmx drag-in build).
 --
--- The model you dragged into Studio contains every script in a disabled Payload
--- folder. This Script moves each part of the payload into the service it belongs
--- to, enables it, and then deletes itself.
+-- The model you dragged into Studio keeps every script in a disabled `Payload`
+-- folder. Requiring this module moves each part of the payload into the service
+-- it belongs to, enables it, and deletes the model.
+--
+-- It runs two ways:
+--   * Studio Command Bar (edit mode, the install is saved with your place):
+--         require(workspace.NecrotideLastStand.Installer)
+--   * pressing Play: the sibling `Boot` script requires this automatically, so
+--     the game is playable immediately - though, like any runtime change, that
+--     install disappears again when you stop.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -13,28 +20,26 @@ local root = script.Parent
 local payload = root and root:FindFirstChild("Payload")
 if not payload then
 	warn("[Necrotide] Installer could not find its Payload folder. Nothing was installed.")
-	return
+	return false
 end
 
 local function enableScripts(container)
+	if container:IsA("BaseScript") then
+		container.Disabled = false
+	end
 	for _, descendant in ipairs(container:GetDescendants()) do
 		if descendant:IsA("BaseScript") then
 			descendant.Disabled = false
 		end
 	end
-	if container:IsA("BaseScript") then
-		container.Disabled = false
-	end
 end
 
-local function moveChildren(from, to, replaceExisting)
+local function moveChildren(from, to)
 	if not from then return end
 	for _, child in ipairs(from:GetChildren()) do
-		if replaceExisting then
-			local existing = to:FindFirstChild(child.Name)
-			if existing then
-				existing:Destroy()
-			end
+		local existing = to:FindFirstChild(child.Name)
+		if existing then
+			existing:Destroy()
 		end
 		child.Parent = to
 	end
@@ -47,36 +52,41 @@ local serverPayload = payload:FindFirstChild("ServerScriptService")
 -- 1. shared modules first: everything else requires them
 if sharedPayload then
 	enableScripts(sharedPayload)
-	moveChildren(sharedPayload, ReplicatedStorage, true)
+	moveChildren(sharedPayload, ReplicatedStorage)
 end
 
--- 2. client scripts, so players joining from here on get them automatically
+-- 2. client scripts, so anyone joining from here on gets them automatically
 local starterPlayerScripts = StarterPlayer:FindFirstChild("StarterPlayerScripts")
 if clientPayload and starterPlayerScripts then
 	enableScripts(clientPayload)
-	-- anyone already in the server needs a live copy; StarterPlayerScripts only
-	-- applies to future joins
+	-- StarterPlayerScripts only applies to future joins, so anyone already in the
+	-- server needs a live copy parented somewhere LocalScripts run
 	for _, player in ipairs(Players:GetPlayers()) do
 		local playerGui = player:FindFirstChild("PlayerGui")
-		if playerGui then
+		if playerGui and not playerGui:FindFirstChild("NecrotideClient") then
 			local live = clientPayload:Clone()
 			live.Name = "NecrotideClient"
 			enableScripts(live)
 			live.Parent = playerGui
 		end
 	end
-	moveChildren(clientPayload, starterPlayerScripts, true)
+	moveChildren(clientPayload, starterPlayerScripts)
 end
 
--- 3. server last: the Bootstrap script starts the game the moment it is enabled
+-- 3. server last: Bootstrap starts the game the moment it is enabled
 if serverPayload then
-	moveChildren(serverPayload, ServerScriptService, true)
-	for _, child in ipairs(ServerScriptService:GetChildren()) do
-		if child.Name == "Bootstrap" or child.Name == "Services" then
-			enableScripts(child)
+	moveChildren(serverPayload, ServerScriptService)
+	for _, name in ipairs({ "Services", "Bootstrap" }) do
+		local installed = ServerScriptService:FindFirstChild(name)
+		if installed then
+			enableScripts(installed)
 		end
 	end
 end
 
-print("[Necrotide] Installed. Press Play to hold the Ashvault.")
-root:Destroy()
+print("[Necrotide] Installed into ReplicatedStorage, ServerScriptService and StarterPlayerScripts.")
+if root then
+	root:Destroy()
+end
+
+return true

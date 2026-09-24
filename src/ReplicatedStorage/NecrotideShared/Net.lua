@@ -67,19 +67,28 @@ function Net.init()
 	return root
 end
 
+local cache = {}
+
 function Net.get(name)
+	local cached = cache[name]
+	if cached and cached.Parent then
+		return cached
+	end
 	local root = folder()
 	if not root then
 		error("Necrotide: remote folder never replicated")
 	end
+	local found
 	if RunService:IsServer() then
-		local found = root:FindFirstChild(name)
+		found = root:FindFirstChild(name)
 		if not found then
 			error("Necrotide: unknown remote " .. tostring(name))
 		end
-		return found
+	else
+		found = root:WaitForChild(name, 60)
 	end
-	return root:WaitForChild(name, 60)
+	cache[name] = found
+	return found
 end
 
 return Net

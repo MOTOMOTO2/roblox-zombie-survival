@@ -42,7 +42,7 @@ function Loadout.push(player)
 		slots = slots,
 		active = entry.active,
 		reloading = entry.reloading,
-		reloadEnd = entry.reloadEnd,
+		reloadDuration = entry.reloadDuration,
 	})
 end
 
@@ -209,6 +209,7 @@ function Loadout.reload(player)
 	local duration = inst.reloadTime * scale
 	entry.reloading = true
 	entry.reloadEnd = os.clock() + duration
+	entry.reloadDuration = duration
 	Loadout.push(player)
 
 	task.delay(duration, function()
@@ -379,7 +380,7 @@ function Loadout.snapshot(player)
 	for i = 1, GameConfig.MaxWeaponSlots do
 		slots[i] = WeaponDefs.publicState(entry.slots[i])
 	end
-	return { slots = slots, active = entry.active, reloading = entry.reloading, reloadEnd = entry.reloadEnd }
+	return { slots = slots, active = entry.active, reloading = entry.reloading, reloadDuration = entry.reloadDuration }
 end
 
 function Loadout.init(services)

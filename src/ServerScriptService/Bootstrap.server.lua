@@ -15,8 +15,9 @@ local ServicesFolder = script.Parent:WaitForChild("Services")
 
 Net.init()
 
-Players.RespawnTime = 4
-Players.CharacterAutoLoads = true
+-- PlayerService owns respawning: a player who bleeds out stays out until the
+-- next wave starts, which Roblox's automatic respawn would otherwise undo.
+Players.CharacterAutoLoads = false
 
 local S = {}
 

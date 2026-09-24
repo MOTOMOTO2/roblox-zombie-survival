@@ -195,8 +195,22 @@ function buildModel() {
 
   const installerSource = fs.readFileSync(path.join(__dirname, "installer.lua"), "utf8");
   const payload = containerItem("Payload", "Folder", payloadParts.join("\n"), 2);
-  const installer = scriptItem("Installer", installerSource, "Script", false, 2);
-  const root = containerItem(NAME, "Folder", [payload, installer].join("\n"), 1);
+  // The installer is a ModuleScript so it can also be run from the Studio Command
+  // Bar in edit mode, where the install is saved with the place.
+  const installer = scriptItem("Installer", installerSource, "ModuleScript", false, 2);
+
+  // ...and a tiny Script so that simply pressing Play installs and runs it too.
+  const bootSource = [
+    "-- Installs the game when you press Play. For an install that is saved with",
+    "-- your place, run this in the Studio Command Bar instead:",
+    `--     require(workspace.${NAME}.Installer)`,
+    'local installer = script.Parent:WaitForChild("Installer")',
+    "require(installer)",
+    "",
+  ].join("\n");
+  const boot = scriptItem("Boot", bootSource, "Script", false, 2);
+
+  const root = containerItem(NAME, "Folder", [payload, installer, boot].join("\n"), 1);
   return xmlDocument(root);
 }
 

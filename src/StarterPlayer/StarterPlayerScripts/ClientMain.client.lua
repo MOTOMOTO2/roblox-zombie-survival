@@ -283,7 +283,14 @@ RunService:BindToRenderStep("NecrotideCamera", Enum.RenderPriority.Camera.Value 
 	local c = character()
 	local hum = humanoid()
 	local root = c and c:FindFirstChild("HumanoidRootPart")
-	if root and hum and hum.Health > 0 and not downed and mouseLocked then
+	if not hum then return end
+
+	local shouldSteer = root ~= nil and hum.Health > 0 and not downed and mouseLocked
+	if hum.AutoRotate == shouldSteer then
+		-- we steer the body by hand while locked, and hand it back when unlocked
+		hum.AutoRotate = not shouldSteer
+	end
+	if shouldSteer then
 		local look = camera.CFrame.LookVector
 		local flat = Vector3.new(look.X, 0, look.Z)
 		if flat.Magnitude > 0.01 then

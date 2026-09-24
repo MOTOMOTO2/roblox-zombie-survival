@@ -356,10 +356,18 @@ check(EnemyService.aliveCount() == 0, "clearAll empties the arena")
 
 local barrier = map.barriers[1]
 check(S.BarrierService.isOpen(barrier) == false, "barricades start boarded up")
+
+-- a crowd hammering the same window in one tick must not strip it instantly
+for _ = 1, 12 do
+	S.BarrierService.tear(barrier, GameConfig.BoardTearTime, husk)
+end
+check(S.BarrierService.isOpen(barrier) == false, "a crowd cannot strip a barricade in one tick")
+
 for _ = 1, GameConfig.BoardsPerBarrier do
+	SIM_ADVANCE(0.05)
 	S.BarrierService.tear(barrier, GameConfig.BoardTearTime + 0.01, husk)
 end
-check(S.BarrierService.isOpen(barrier) == true, "five tears open the gap")
+check(S.BarrierService.isOpen(barrier) == true, "sustained clawing opens the gap")
 check(S.BarrierService.repairOne(barrier, player) == true, "players can nail a board back on")
 check(S.BarrierService.isOpen(barrier) == false, "one board is enough to close it")
 S.BarrierService.smash(barrier)

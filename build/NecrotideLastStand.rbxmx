@@ -2,7 +2,7 @@
 	<Meta name="ExplicitAutoJoints">true</Meta>
 	<External>null</External>
 	<External>nil</External>
-	<Item class="Folder" referent="RBX30">
+	<Item class="Folder" referent="RBX31">
 		<Properties>
 			<string name="Name">NecrotideLastStand</string>
 		</Properties>
@@ -478,19 +478,28 @@ function Net.init()
 	return root
 end
 
+local cache = {}
+
 function Net.get(name)
+	local cached = cache[name]
+	if cached and cached.Parent then
+		return cached
+	end
 	local root = folder()
 	if not root then
 		error("Necrotide: remote folder never replicated")
 	end
+	local found
 	if RunService:IsServer() then
-		local found = root:FindFirstChild(name)
+		found = root:FindFirstChild(name)
 		if not found then
 			error("Necrotide: unknown remote " .. tostring(name))
 		end
-		return found
+	else
+		found = root:WaitForChild(name, 60)
 	end
-	return root:WaitForChild(name, 60)
+	cache[name] = found
+	return found
 end
 
 return Net
@@ -1269,8 +1278,9 @@ local ServicesFolder = script.Parent:WaitForChild("Services")
 
 Net.init()
 
-Players.RespawnTime = 4
-Players.CharacterAutoLoads = true
+-- PlayerService owns respawning: a player who bleeds out stays out until the
+-- next wave starts, which Roblox's automatic respawn would otherwise undo.
+Players.CharacterAutoLoads = false
 
 local S = {}
 
@@ -1406,10 +1416,21 @@ function BarrierService.isOpen(barrier)
 	return intactCount(barrier) == 0
 end
 
--- Rips a board loose. Called every tick by an enemy pressed against the gap.
+-- Rips a board loose. Called every tick by every enemy pressed against the gap,
+-- so the progress from the first caller in a tick counts in full and everyone
+-- else only adds a small crowd bonus. Without this, ten husks at one window
+-- would strip five boards in well under a second.
+local CROWD_BONUS = 0.15
+
 function BarrierService.tear(barrier, dt, entity)
 	local state = boardState(barrier)
-	state.tearProgress = state.tearProgress + dt
+	local now = os.clock()
+	if state.lastTearAt and now - state.lastTearAt < 0.02 then
+		state.tearProgress = state.tearProgress + dt * CROWD_BONUS
+	else
+		state.lastTearAt = now
+		state.tearProgress = state.tearProgress + dt
+	end
 	local tearTime = GameConfig.BoardTearTime
 	if state.tearProgress < tearTime then
 		-- rattle the topmost intact board so the players can see it going
@@ -2847,7 +2868,7 @@ function Loadout.push(player)
 		slots = slots,
 		active = entry.active,
 		reloading = entry.reloading,
-		reloadEnd = entry.reloadEnd,
+		reloadDuration = entry.reloadDuration,
 	})
 end
 
@@ -3014,6 +3035,7 @@ function Loadout.reload(player)
 	local duration = inst.reloadTime * scale
 	entry.reloading = true
 	entry.reloadEnd = os.clock() + duration
+	entry.reloadDuration = duration
 	Loadout.push(player)
 
 	task.delay(duration, function()
@@ -3184,7 +3206,7 @@ function Loadout.snapshot(player)
 	for i = 1, GameConfig.MaxWeaponSlots do
 		slots[i] = WeaponDefs.publicState(entry.slots[i])
 	end
-	return { slots = slots, active = entry.active, reloading = entry.reloading, reloadEnd = entry.reloadEnd }
+	return { slots = slots, active = entry.active, reloading = entry.reloading, reloadDuration = entry.reloadDuration }
 end
 
 function Loadout.init(services)
@@ -4049,12 +4071,15 @@ function PlayerService.init(services)
 	local function onPlayer(player)
 		ensure(player)
 		PlayerService.pushTonics(player)
-		if player.Character then
-			onCharacter(player, player.Character)
-		end
 		player.CharacterAdded:Connect(function(character)
 			onCharacter(player, character)
 		end)
+		if player.Character then
+			onCharacter(player, player.Character)
+		else
+			-- CharacterAutoLoads is off, so we spawn people in ourselves
+			player:LoadCharacter()
+		end
 	end
 
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -4466,6 +4491,10 @@ end
 local function buildWallBuy(spec)
 	local def = WeaponDefs.get(spec.weapon)
 	if not def then return end
+	if not def.wallCost then
+		warn("[Necrotide] " .. def.name .. " has no wallCost, so it cannot go on an Armory Rack")
+		return
+	end
 	local folder = Instance.new("Model")
 	folder.Name = "ArmoryRack_" .. def.id
 	folder.Parent = S.Map.stationFolder
@@ -5435,7 +5464,14 @@ RunService:BindToRenderStep("NecrotideCamera", Enum.RenderPriority.Camera.Value 
 	local c = character()
 	local hum = humanoid()
 	local root = c and c:FindFirstChild("HumanoidRootPart")
-	if root and hum and hum.Health > 0 and not downed and mouseLocked then
+	if not hum then return end
+
+	local shouldSteer = root ~= nil and hum.Health > 0 and not downed and mouseLocked
+	if hum.AutoRotate == shouldSteer then
+		-- we steer the body by hand while locked, and hand it back when unlocked
+		hum.AutoRotate = not shouldSteer
+	end
+	if shouldSteer then
 		local look = camera.CFrame.LookVector
 		local flat = Vector3.new(look.X, 0, look.Z)
 		if flat.Magnitude > 0.01 then
@@ -6295,7 +6331,7 @@ function Hud.setLoadout(data)
 
 	if data.reloading then
 		state.reloadStart = os.clock()
-		state.reloadDuration = math.max(0.1, (active and active.reloadTime) or 1)
+		state.reloadDuration = math.max(0.1, data.reloadDuration or (active and active.reloadTime) or 1)
 		ui.reloadTrack.Visible = true
 	else
 		ui.reloadTrack.Visible = false
@@ -6544,14 +6580,21 @@ return Hud
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Script" referent="RBX29">
+		<Item class="ModuleScript" referent="RBX29">
 			<Properties>
 				<string name="Name">Installer</string>
 				<ProtectedString name="Source"><![CDATA[-- Necrotide Installer (only used by the .rbxmx drag-in build).
 --
--- The model you dragged into Studio contains every script in a disabled Payload
--- folder. This Script moves each part of the payload into the service it belongs
--- to, enables it, and then deletes itself.
+-- The model you dragged into Studio keeps every script in a disabled `Payload`
+-- folder. Requiring this module moves each part of the payload into the service
+-- it belongs to, enables it, and deletes the model.
+--
+-- It runs two ways:
+--   * Studio Command Bar (edit mode, the install is saved with your place):
+--         require(workspace.NecrotideLastStand.Installer)
+--   * pressing Play: the sibling `Boot` script requires this automatically, so
+--     the game is playable immediately - though, like any runtime change, that
+--     install disappears again when you stop.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -6562,28 +6605,26 @@ local root = script.Parent
 local payload = root and root:FindFirstChild("Payload")
 if not payload then
 	warn("[Necrotide] Installer could not find its Payload folder. Nothing was installed.")
-	return
+	return false
 end
 
 local function enableScripts(container)
+	if container:IsA("BaseScript") then
+		container.Disabled = false
+	end
 	for _, descendant in ipairs(container:GetDescendants()) do
 		if descendant:IsA("BaseScript") then
 			descendant.Disabled = false
 		end
 	end
-	if container:IsA("BaseScript") then
-		container.Disabled = false
-	end
 end
 
-local function moveChildren(from, to, replaceExisting)
+local function moveChildren(from, to)
 	if not from then return end
 	for _, child in ipairs(from:GetChildren()) do
-		if replaceExisting then
-			local existing = to:FindFirstChild(child.Name)
-			if existing then
-				existing:Destroy()
-			end
+		local existing = to:FindFirstChild(child.Name)
+		if existing then
+			existing:Destroy()
 		end
 		child.Parent = to
 	end
@@ -6596,39 +6637,55 @@ local serverPayload = payload:FindFirstChild("ServerScriptService")
 -- 1. shared modules first: everything else requires them
 if sharedPayload then
 	enableScripts(sharedPayload)
-	moveChildren(sharedPayload, ReplicatedStorage, true)
+	moveChildren(sharedPayload, ReplicatedStorage)
 end
 
--- 2. client scripts, so players joining from here on get them automatically
+-- 2. client scripts, so anyone joining from here on gets them automatically
 local starterPlayerScripts = StarterPlayer:FindFirstChild("StarterPlayerScripts")
 if clientPayload and starterPlayerScripts then
 	enableScripts(clientPayload)
-	-- anyone already in the server needs a live copy; StarterPlayerScripts only
-	-- applies to future joins
+	-- StarterPlayerScripts only applies to future joins, so anyone already in the
+	-- server needs a live copy parented somewhere LocalScripts run
 	for _, player in ipairs(Players:GetPlayers()) do
 		local playerGui = player:FindFirstChild("PlayerGui")
-		if playerGui then
+		if playerGui and not playerGui:FindFirstChild("NecrotideClient") then
 			local live = clientPayload:Clone()
 			live.Name = "NecrotideClient"
 			enableScripts(live)
 			live.Parent = playerGui
 		end
 	end
-	moveChildren(clientPayload, starterPlayerScripts, true)
+	moveChildren(clientPayload, starterPlayerScripts)
 end
 
--- 3. server last: the Bootstrap script starts the game the moment it is enabled
+-- 3. server last: Bootstrap starts the game the moment it is enabled
 if serverPayload then
-	moveChildren(serverPayload, ServerScriptService, true)
-	for _, child in ipairs(ServerScriptService:GetChildren()) do
-		if child.Name == "Bootstrap" or child.Name == "Services" then
-			enableScripts(child)
+	moveChildren(serverPayload, ServerScriptService)
+	for _, name in ipairs({ "Services", "Bootstrap" }) do
+		local installed = ServerScriptService:FindFirstChild(name)
+		if installed then
+			enableScripts(installed)
 		end
 	end
 end
 
-print("[Necrotide] Installed. Press Play to hold the Ashvault.")
-root:Destroy()
+print("[Necrotide] Installed into ReplicatedStorage, ServerScriptService and StarterPlayerScripts.")
+if root then
+	root:Destroy()
+end
+
+return true
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="Script" referent="RBX30">
+			<Properties>
+				<string name="Name">Boot</string>
+				<ProtectedString name="Source"><![CDATA[-- Installs the game when you press Play. For an install that is saved with
+-- your place, run this in the Studio Command Bar instead:
+--     require(workspace.NecrotideLastStand.Installer)
+local installer = script.Parent:WaitForChild("Installer")
+require(installer)
 ]]></ProtectedString>
 				<bool name="Disabled">false</bool>
 			</Properties>

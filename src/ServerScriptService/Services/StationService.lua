@@ -122,6 +122,10 @@ end
 local function buildWallBuy(spec)
 	local def = WeaponDefs.get(spec.weapon)
 	if not def then return end
+	if not def.wallCost then
+		warn("[Necrotide] " .. def.name .. " has no wallCost, so it cannot go on an Armory Rack")
+		return
+	end
 	local folder = Instance.new("Model")
 	folder.Name = "ArmoryRack_" .. def.id
 	folder.Parent = S.Map.stationFolder

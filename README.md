@@ -11,11 +11,66 @@ asset IDs and no trademarked terminology. See [Originality](#originality).
 
 ---
 
-## Import it into Roblox Studio
+## Get it into Roblox Studio
 
-Two ways, pick one.
+Three ways. **Live sync** is the one you want if you are going to keep editing
+the code; the other two are one-shot imports.
 
-### 1. Open the finished place (easiest)
+### 1. Live sync with Rojo (edit here, see it in Studio)
+
+[Rojo](https://rojo.space) streams `src/` into an open Studio place: save a
+file, the matching script updates a second later. One-time setup, then one
+command.
+
+```bash
+npm install
+npm run sync:plugin    # puts the Rojo plugin in Studio - restart Studio afterwards
+npm run sync           # starts the sync server; leave it running while you work
+```
+
+Then in Studio, with the place you want to sync into open:
+
+1. **Plugins → Rojo → Connect**. The defaults (`localhost`, port `34872`) are
+   exactly what `npm run sync` serves.
+2. The tree fills in: `ReplicatedStorage.NecrotideShared`,
+   `ServerScriptService.Bootstrap` and `Services`, and
+   `StarterPlayer.StarterPlayerScripts.ClientMain` and `Modules`.
+3. Press **Play**. Save the place (Ctrl+S) to keep the scripts in it.
+
+Worth knowing:
+
+- **You do not have to install anything else first.** If no `rojo` is on your
+  PATH, `npm run sync` downloads the pinned Rojo **7.7.0** into `.tools/`
+  (gitignored, nothing system-wide) and uses that. If you prefer a managed
+  toolchain, `rokit.toml` pins the same version — `rokit install`. Aftman users
+  can copy it to `aftman.toml`.
+- **Sync is one-way: files → Studio.** Editing a synced script inside Studio
+  works until the next save on disk overwrites it, and nothing is written back
+  to `src/`.
+- **Your place is not taken over.** Rojo only manages what
+  `default.project.json` maps — the three containers listed above; anything
+  else in your Workspace or Lighting is left alone. The arena
+  is generated at run time by `MapBuilder.lua`, so an empty viewport before you
+  press Play is correct.
+- `npm run doctor` checks the whole path — project paths, Rojo version, whether
+  the Studio plugin is installed, whether the port is free — and prints what is
+  missing.
+- Port already taken? `npm run sync -- --port 34873`, then type that port into
+  the plugin.
+
+<details>
+<summary>If it will not connect</summary>
+
+| Symptom | Fix |
+| --- | --- |
+| No **Rojo** button in the Plugins tab | `npm run sync:plugin`, then fully restart Studio |
+| Plugin says it cannot reach the server | `npm run sync` has to be running in this folder at the same time; check the port matches |
+| Plugin warns about a version mismatch | The plugin and CLI must be the same major version — `npm run sync:plugin` reinstalls the plugin that matches the pinned CLI |
+| Scripts arrive but nothing happens on Play | Check the Output window; `Bootstrap` needs `ReplicatedStorage.NecrotideShared` to be present, which means letting the first sync finish before pressing Play |
+
+</details>
+
+### 2. Open the finished place (no tooling at all)
 
 1. Download **`build/NecrotideLastStand.rbxlx`**.
 2. In Studio: **File → Open from File…** and pick it.
@@ -26,7 +81,7 @@ Two ways, pick one.
 > place file contains only scripts, and `MapBuilder.lua` generates the whole
 > arena when the game starts.
 
-### 2. Drag the model into a place you already have
+### 3. Drag the model into a place you already have
 
 1. Download **`build/NecrotideLastStand.rbxmx`**.
 2. In Studio, with your own place open: **right-click Workspace → Insert from
@@ -49,11 +104,6 @@ Two ways, pick one.
 > The game builds its own map into `Workspace.Ashvault` at runtime. If your place
 > already has a baseplate or other geometry, the arena will be dropped on top of
 > it at the origin — delete your own parts first for a clean result.
-
-### 3. Rojo (if you already use it)
-
-`default.project.json` is included and follows the standard Rojo layout, so
-`rojo serve` works against `src/` directly.
 
 ---
 
@@ -147,7 +197,7 @@ Node 18+ is the only requirement (no Roblox install needed).
 
 ```bash
 npm install
-npm run all        # check + build + verify + test
+npm run all        # check + build + verify + test + doctor
 ```
 
 | Script | What it does |
@@ -156,6 +206,15 @@ npm run all        # check + build + verify + test
 | `npm run build` | Regenerates `build/*.rbxlx` and `build/*.rbxmx` from `src/` |
 | `npm run verify` | Parses the generated XML, confirms the instance tree, and statically resolves every `Net.get`, `require`, `S.Service.method` and `GameConfig.Key` reference |
 | `npm run test` | Runs the real game modules headlessly against a Roblox API stub |
+| `npm run doctor` | Checks the Studio sync path: project paths, Rojo, plugin, port |
+| `npm run sync` | Starts the Rojo sync server (see [live sync](#1-live-sync-with-rojo-edit-here-see-it-in-studio)) |
+| `npm run sync:plugin` | Installs the Rojo Studio plugin for the current user |
+| `npm run sync:install` | Downloads the pinned Rojo CLI into `.tools/` without starting it |
+| `npm run sync:build` | Builds a place with Rojo into `build/rojo/` instead of `tools/build.js` |
+| `npm run sourcemap` | Writes `sourcemap.json` so Luau LSP can resolve `require`s |
+
+Only `npm run sync*` touches the network, and only to fetch that one pinned
+Rojo release. Everything else runs offline.
 
 ### How it is verified without Roblox
 
@@ -237,7 +296,15 @@ src/
     Modules/Hud.lua         the entire interface, built in code
     Modules/Effects.lua     tracers, muzzle flash, camera kick, sounds
 tools/                      build + verification (Node, no Roblox needed)
+  build.js            src/ -> .rbxlx and .rbxmx, no external tooling
+  check-lua.js        syntax gate
+  verify.js           static checks against the built place
+  sim.js, sim/        headless run of the real modules
+  sync.js             Rojo live sync: doctor, install, plugin, serve
+  installer.lua       the drag-in model's permanent installer
 build/                      the importable .rbxlx and .rbxmx (committed)
+default.project.json        Rojo mapping of src/ onto Roblox services
+rokit.toml                  pins Rojo 7.7.0 for Rokit/Aftman users
 ```
 
 ### Design notes
@@ -323,3 +390,9 @@ Decisions taken without asking, all easy to reverse:
   Phial to get one self-revive per wave).
 - **Friendly fire is off** and explosives don't hurt the thrower.
 - No music track is included; add one to `SoundService` if you want a bed.
+- **"Sync into Studio" is taken to mean Rojo live sync**, since that is the
+  standard way to keep a repo like this and an open place in step. Rojo **7.7.0**
+  is pinned, the CLI is vendored into `.tools/` on first use instead of being
+  installed system-wide, and the sync is left one-way (files → Studio). If you
+  only wanted the game in Studio once, use option 2 or 3 above and ignore all of
+  it.

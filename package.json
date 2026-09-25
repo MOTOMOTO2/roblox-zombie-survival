@@ -2,13 +2,19 @@
   "name": "necrotide-last-stand",
   "version": "1.0.0",
   "private": true,
-  "description": "Round-based undead survival shooter for Roblox. Builds a ready-to-open .rbxlx place file and a drag-in .rbxmx model from plain Luau sources.",
+  "description": "Round-based undead survival shooter for Roblox. Live-syncs into Studio with Rojo, or builds a ready-to-open .rbxlx place and a drag-in .rbxmx model from plain Luau sources.",
   "scripts": {
     "check": "node tools/check-lua.js",
     "build": "node tools/build.js",
     "verify": "node tools/verify.js",
     "test": "node tools/sim.js",
-    "all": "npm run check && npm run build && npm run verify && npm run test"
+    "doctor": "node tools/sync.js doctor",
+    "sync": "node tools/sync.js serve",
+    "sync:install": "node tools/sync.js install",
+    "sync:plugin": "node tools/sync.js plugin",
+    "sync:build": "node tools/sync.js build",
+    "sourcemap": "node tools/sync.js sourcemap",
+    "all": "npm run check && npm run build && npm run verify && npm run test && npm run doctor"
   },
   "devDependencies": {
     "fengari": "^0.1.5",

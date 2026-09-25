@@ -1,0 +1,9 @@
+# Toolchain pin for NECROTIDE: LAST STAND.
+#
+# Rokit (or Aftman - copy this file to aftman.toml) installs the same Rojo the
+# project was tested against:  rokit install
+#
+# You do not need Rokit. `npm run sync` downloads this exact version into
+# .tools/bin on its own if no Rojo is on PATH.
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0"

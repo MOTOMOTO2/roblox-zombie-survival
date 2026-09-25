@@ -11,6 +11,53 @@ asset IDs and no trademarked terminology. See [Originality](#originality).
 
 ---
 
+## Can Claude edit straight into my Studio?
+
+Not literally, and nothing can — but `npm run live` gets you the practical
+version of it: **Claude pushes a commit, and a few seconds later the script has
+changed inside your open place. You do nothing.**
+
+```bash
+npm run live      # leave this one window open; that is the whole workflow
+```
+
+That command serves the code to Studio *and* watches GitHub. Every 15 seconds it
+fetches; when a commit lands it pulls and hands the files to the running Rojo
+server, which streams them into your open place. On a Mac you can double-click
+**`live-sync.command`** instead.
+
+What it prints when a change arrives:
+
+```
+23:41:07 live  pulled 1 commit(s) from origin/main
+         live  2 file(s) changed, 1 of them scripts:
+         live    src/ServerScriptService/Services/WaveService.lua
+         live  Rojo is pushing them into Studio now
+```
+
+Why the "not literally":
+
+- **A Studio session only accepts connections from its own machine.** The Rojo
+  server listens on `localhost` — your MacBook — and there is no remote port to
+  reach even if you wanted one. Claude runs on a different machine with no route
+  to yours, so the repo is the channel between us: Claude commits, the watcher on
+  your side pulls.
+- **So one process has to be running on your machine.** That is `npm run live`.
+  Close the window and the link is gone until you start it again; nothing is
+  lost, it just stops updating.
+- **It only touches the three code containers** `default.project.json` maps.
+  Anything you build by hand in the viewport is never overwritten — see
+  [Editing it together](#editing-it-together).
+- **Roblox's Open Cloud API can publish a whole place to a live game**, and an
+  agent with an API key could do that. It replaces the published version and
+  cannot touch an *open editor* — so it is publishing, not editing, and this repo
+  deliberately does not ask you for that key.
+
+If you would rather approve every change by hand, use `npm run sync` (serve only)
+and run `npm run pull` when you want the new code. Same result, one more step.
+
+---
+
 ## Get it into Roblox Studio
 
 Three ways. **Live sync** is the one you want if you are going to keep editing
@@ -33,12 +80,19 @@ Terminal:
 git clone https://github.com/MOTOMOTO2/roblox-zombie-survival.git
 cd roblox-zombie-survival
 npm run setup     # fetches the pinned Rojo into .tools/ and installs the Studio plugin
-npm run sync      # starts the sync server - leave this window open
+npm run live      # serves the code AND auto-pulls new commits - leave this open
 ```
 
-`npm run setup` is a first-run-only step. After that, `npm run sync` is the
-whole ritual — or double-click **`start-sync.command`** in Finder, which does
-both and needs no Terminal knowledge.
+`npm run setup` is a first-run-only step. After that, one command is the whole
+ritual — or double-click a `.command` file in Finder, which does both and needs
+no Terminal knowledge:
+
+| | serves `src/` to Studio | pulls new commits by itself |
+|---|---|---|
+| `npm run live` / `live-sync.command` | yes | yes, every 15s |
+| `npm run sync` / `start-sync.command` | yes | no — you run `npm run pull` |
+
+Use `live` unless you specifically want to approve each change.
 
 **Quit Studio completely and reopen it** after the first `npm run setup`, or the
 new plugin won't be loaded.
@@ -46,7 +100,7 @@ new plugin won't be loaded.
 #### Windows
 
 Identical, with the same commands, in PowerShell or Git Bash. The `.command`
-files are macOS-only; use `npm run sync`.
+files are macOS-only; use `npm run live` (or `npm run sync`).
 
 #### Connecting the place you already have open
 
@@ -94,11 +148,14 @@ Worth knowing:
 | Symptom | Fix |
 | --- | --- |
 | No **Rojo** button in the Plugins tab | `npm run sync:plugin`, then quit and reopen Studio (on a Mac, ⌘Q — closing the window is not enough) |
-| Plugin says it cannot reach the server | `npm run sync` has to be running in this folder at the same time; check the port matches |
+| Plugin says it cannot reach the server | `npm run live` (or `npm run sync`) has to be running in this folder at the same time; check the port matches |
 | Plugin warns about a version mismatch | The plugin and CLI must be the same major version — `npm run sync:plugin` reinstalls the plugin that matches the pinned CLI |
 | Scripts arrive but nothing happens on Play | Check the Output window; `Bootstrap` needs `ReplicatedStorage.NecrotideShared` to be present, which means letting the first sync finish before pressing Play |
 | `"rojo" cannot be opened because Apple cannot check it` | Something re-quarantined the binary. `npm run doctor` says so and prints the one-line `xattr -d` fix; deleting `.tools/` and re-running `npm run setup` also works |
-| `zsh: permission denied: ./start-sync.command` | `chmod +x start-sync.command` (git should preserve the bit, but a zip download will not) |
+| `zsh: permission denied: ./start-sync.command` | `chmod +x start-sync.command` (git should preserve the bit, but a zip download will not) — same for `live-sync.command` |
+| `npm run live` says *serving files only* | It found no git clone, no `origin`, or no upstream branch; it prints which. `git branch --set-upstream-to origin/main` fixes the usual one. Rojo still serves what is on disk |
+| A commit was pushed but Studio never changed | Look at the `live` lines in that window: no `pulled` line within ~15s means the fetch is failing (it says so), and a `needs a hand` line means a conflict stopped the watcher. `npm run pull` in another terminal shows the same error in full |
+| `live` printed *git pull needs a hand* | Your local commits or edits clash with what was pushed. Resolve it in another terminal (`git status`), then restart `npm run live`; Rojo kept serving the whole time |
 
 </details>
 
@@ -146,20 +203,27 @@ is what makes two people (or you and Claude) able to work on the same game
 without stepping on each other.
 
 ```
-Claude edits src/ ──> git push ──> you: npm run pull ──> Rojo ──> your Studio
+Claude edits src/ ──> git push ──> npm run live fetches ──> Rojo ──> your Studio
+                                  (every 15s, by itself)
 ```
 
-**To take in changes made for you:**
+**To take in changes made for you:** nothing, if `npm run live` is running — it
+fetches, pulls and reports what changed on its own. If you are running plain
+`npm run sync`, do it by hand:
 
 ```bash
 npm run pull       # or double-click pull-latest.command in Finder
 ```
 
-Leave `npm run sync` running in its own Terminal tab while you do it. `pull`
-fetches the new commits, lists which scripts changed, and the sync server pushes
-them into the open place on its own — no reconnect, no restart. Press Play
-again to see them. Uncommitted edits of yours are stashed and put back, so it
-is safe to run at any time.
+Either way the sync server pushes the new files into the open place — no
+reconnect, no restart. Press Play again to see them. Uncommitted edits of yours
+are stashed and put back, so it is safe at any time; the test suite covers
+exactly that case (`npm run test:sync`).
+
+`npm run live -- --interval 60` slows the polling down; five seconds is the
+floor. If a pull ever conflicts with your own commits, the watcher stops and
+prints git's message rather than retrying forever — fix it in another terminal,
+then restart `npm run live`. Rojo keeps serving throughout.
 
 **To send your own changes back:**
 
@@ -175,9 +239,11 @@ Two honest limits:
 
 - **Nobody can reach into your Studio session but you.** The Rojo server listens
   on `localhost`, i.e. only your MacBook, and that is the right setting. Claude
-  edits files and commits them; your `npm run pull` is the step that carries
-  them across. Roblox's own Team Create is the tool for two people editing one
-  live place, and it is separate from this.
+  edits files and commits them; the watcher in `npm run live` (or a manual
+  `npm run pull`) is the step that carries them across — which is as direct as it
+  gets, see [Can Claude edit straight into my Studio?](#can-claude-edit-straight-into-my-studio).
+  Roblox's own Team Create is the tool for two people editing one live place, and
+  it is separate from this.
 - **Git is the source of truth, not the place file.** Anything you build by hand
   in the Studio viewport lives only in your local `.rbxl` unless you either put
   it in code (`MapBuilder.lua` generates the whole arena) or sync it back —
@@ -294,7 +360,7 @@ Node 18+ is the only requirement (no Roblox install needed).
 
 ```bash
 npm install
-npm run all        # check + build + verify + test + doctor
+npm run all        # check + build + verify + test + test:sync + doctor
 ```
 
 | Script | What it does |
@@ -303,9 +369,11 @@ npm run all        # check + build + verify + test + doctor
 | `npm run build` | Regenerates `build/*.rbxlx` and `build/*.rbxmx` from `src/` |
 | `npm run verify` | Parses the generated XML, confirms the instance tree, and statically resolves every `Net.get`, `require`, `S.Service.method` and `GameConfig.Key` reference |
 | `npm run test` | Runs the real game modules headlessly against a Roblox API stub |
+| `npm run test:sync` | Drives the live watcher against throwaway git repos: pulls, dirty trees, conflicts, offline |
 | `npm run doctor` | Checks the whole sync path: project paths, Node, Studio, Rojo, plugin, git state, port |
 | `npm run setup` | First-run convenience: `sync:install` + `sync:plugin` + `doctor` |
-| `npm run sync` | Starts the Rojo sync server (see [live sync](#1-live-sync-with-rojo-edit-here-see-it-in-studio)) |
+| `npm run live` | Sync server **plus** a git watcher: pushed commits go into Studio by themselves (`-- --interval 60` to slow it, `-- --port N` to move it) |
+| `npm run sync` | Starts the Rojo sync server alone (see [live sync](#1-live-sync-with-rojo-edit-here-see-it-in-studio)) |
 | `npm run pull` | Pulls new commits (stashing your edits) and reports which scripts changed |
 | `npm run sync:plugin` | Installs the Rojo Studio plugin for the current user |
 | `npm run sync:install` | Downloads the pinned Rojo CLI into `.tools/` without starting it |
@@ -313,9 +381,9 @@ npm run all        # check + build + verify + test + doctor
 | `npm run sync:back -- <place.rbxl>` | Reverse direction: writes a saved place's scripts back over `src/` (dry run unless `--write`) |
 | `npm run sourcemap` | Writes `sourcemap.json` so Luau LSP can resolve `require`s |
 
-Only `npm run sync*`, `npm run setup` and `npm run pull` touch the network —
-to fetch that one pinned Rojo release, and to talk to git. Everything else runs
-offline.
+Only `npm run sync*`, `npm run setup`, `npm run pull` and `npm run live` touch
+the network — to fetch that one pinned Rojo release, and to talk to git.
+Everything else, `npm run test:sync` included, runs offline.
 
 ### How it is verified without Roblox
 
@@ -401,11 +469,15 @@ tools/                      build + verification (Node, no Roblox needed)
   check-lua.js        syntax gate
   verify.js           static checks against the built place
   sim.js, sim/        headless run of the real modules
-  sync.js             Rojo live sync: doctor, install, plugin, serve
+  sync.js             Rojo sync: doctor, install, plugin, serve, live, pull
+  test-sync.js        tests the live watcher on throwaway git repos
   installer.lua       the drag-in model's permanent installer
 build/                      the importable .rbxlx and .rbxmx (committed)
 default.project.json        Rojo mapping of src/ onto Roblox services
 rokit.toml                  pins Rojo 7.7.0 for Rokit/Aftman users
+live-sync.command           macOS: double-click for serve + auto-pull
+start-sync.command          macOS: double-click for serve only
+pull-latest.command         macOS: double-click to pull once
 ```
 
 ### Design notes
@@ -499,8 +571,16 @@ Decisions taken without asking, all easy to reverse:
   game in Studio once, use option 2 or 3 above and ignore all of it.
 - **Collaboration goes through git, not through a shared Studio session.** The
   Rojo server binds to `localhost` and is not exposed to the network; changes
-  travel as commits and land in Studio via `npm run pull`. Roblox Team Create is
-  the alternative if you want two people in one live place, and it does not
-  conflict with any of this.
+  travel as commits and land in Studio via `npm run live` or `npm run pull`.
+  Roblox Team Create is the alternative if you want two people in one live place,
+  and it does not conflict with any of this.
+- **"Can Claude edit directly in my Studio" is taken to mean hands-free, not
+  literally remote.** No remote process can attach to a Studio session, so
+  `npm run live` polls the git remote on your machine instead — the closest
+  faithful answer. Polling every 15 seconds is a guess at the right trade between
+  feeling instant and being quiet; `-- --interval N` changes it. Publishing to a
+  live game through Roblox's Open Cloud API would be a different feature and
+  needs an API key of yours, so it is deliberately not built here.
 - **The `.command` launchers are macOS-only** double-click convenience wrappers
-  around `npm run sync` and `npm run pull`; nothing depends on them.
+  around `npm run live`, `npm run sync` and `npm run pull`; nothing depends on
+  them.

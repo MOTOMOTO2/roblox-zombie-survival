@@ -2,22 +2,24 @@
   "name": "necrotide-last-stand",
   "version": "1.0.0",
   "private": true,
-  "description": "Round-based undead survival shooter for Roblox. Live-syncs into Studio with Rojo, or builds a ready-to-open .rbxlx place and a drag-in .rbxmx model from plain Luau sources.",
+  "description": "Round-based undead survival shooter for Roblox. Live-syncs into Studio with Rojo - `npm run live` also auto-pulls pushed commits - or builds a ready-to-open .rbxlx place and a drag-in .rbxmx model from plain Luau sources.",
   "scripts": {
     "check": "node tools/check-lua.js",
     "build": "node tools/build.js",
     "verify": "node tools/verify.js",
     "test": "node tools/sim.js",
+    "test:sync": "node tools/test-sync.js",
     "doctor": "node tools/sync.js doctor",
     "setup": "node tools/sync.js install && node tools/sync.js plugin && node tools/sync.js doctor",
     "sync": "node tools/sync.js serve",
+    "live": "node tools/sync.js live",
     "pull": "node tools/sync.js pull",
     "sync:install": "node tools/sync.js install",
     "sync:plugin": "node tools/sync.js plugin",
     "sync:build": "node tools/sync.js build",
     "sync:back": "node tools/sync.js syncback",
     "sourcemap": "node tools/sync.js sourcemap",
-    "all": "npm run check && npm run build && npm run verify && npm run test && npm run doctor"
+    "all": "npm run check && npm run build && npm run verify && npm run test && npm run test:sync && npm run doctor"
   },
   "devDependencies": {
     "fengari": "^0.1.5",

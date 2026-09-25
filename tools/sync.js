@@ -6,6 +6,7 @@
  *   node tools/sync.js install    fetch the pinned Rojo CLI into .tools/bin
  *   node tools/sync.js plugin     install the Rojo Studio plugin for the local user
  *   node tools/sync.js serve      start the sync server (this one keeps running)
+ *   node tools/sync.js live       serve + auto-pull new commits into Studio (keeps running)
  *   node tools/sync.js pull       git pull, so a running server streams the new code
  *   node tools/sync.js syncback   pull scripts out of a .rbxl back into src/
  *   node tools/sync.js sourcemap  write sourcemap.json for Luau LSP
@@ -206,8 +207,8 @@ function studioApp() {
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
-function git(args) {
-  const run = spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+function git(args, cwd) {
+  const run = spawnSync("git", args, { cwd: cwd || ROOT, encoding: "utf8" });
   if (run.error || run.status !== 0) return null;
   return (run.stdout || "").trim();
 }
@@ -371,14 +372,28 @@ async function doctor() {
     process.exitCode = 1;
     return;
   }
-  console.log("next: `npm run sync`, then in Studio: Plugins > Rojo > Connect");
+  console.log("next: `npm run live` (sync + auto-pull), or `npm run sync` for sync alone.");
+  console.log("then, in Studio: Plugins > Rojo > Connect");
 }
 
 // ------------------------------------------------------------------ commands
 
+// Lists what a range of commits did to src/, the only part of a pull that
+// Studio can show. Returns how many script files changed.
+function reportScripts(before, after, indent, cwd) {
+  const prefix = indent || "";
+  const files = git(["diff", "--name-only", `${before}..${after}`], cwd) || "";
+  const changed = files ? files.split("\n") : [];
+  const scripts = changed.filter((file) => /^src\/.*\.luau?$/.test(file));
+  console.log(`${prefix}${changed.length} file(s) changed, ${scripts.length} of them scripts:`);
+  for (const file of scripts.slice(0, 20)) console.log(`${prefix}  ${file}`);
+  if (scripts.length > 20) console.log(`${prefix}  ... and ${scripts.length - 20} more`);
+  return scripts.length;
+}
+
 // `git pull` with the working tree protected. A Rojo server watching src/ picks
 // the new files up on its own, so this is the whole "get Claude's edits into my
-// Studio" step - no restart, no reconnect.
+// Studio" step - no restart, no reconnect. `live` does it for you on a timer.
 function pull() {
   if (!git(["rev-parse", "--git-dir"])) {
     console.error("not a git clone - nothing to pull");
@@ -397,17 +412,141 @@ function pull() {
     console.log("already up to date - nothing new to sync");
     return;
   }
-  const files = git(["diff", "--name-only", `${before}..${after}`]) || "";
-  const changed = files ? files.split("\n") : [];
-  const scripts = changed.filter((file) => /^src\/.*\.luau?$/.test(file));
-  console.log(`\n${changed.length} file(s) changed, ${scripts.length} of them scripts:`);
-  for (const file of scripts.slice(0, 20)) console.log(`  ${file}`);
-  if (scripts.length > 20) console.log(`  ... and ${scripts.length - 20} more`);
+  console.log("");
+  const scripts = reportScripts(before, after);
   console.log(
-    scripts.length
+    scripts
       ? "\na running `npm run sync` has already pushed these into Studio. Press Play to try them."
       : "\nno script changes, so Studio will not show anything new."
   );
+}
+
+// ----------------------------------------------------------------- live mode
+
+const DEFAULT_INTERVAL = 15; // seconds between fetches
+
+function stamp() {
+  return new Date().toTimeString().slice(0, 8);
+}
+
+function say(line) {
+  console.log(`${stamp()} live  ${line}`);
+}
+
+const SAY_INDENT = " ".repeat(stamp().length) + " live  ";
+
+function argValue(args, flag, fallback) {
+  const index = args.indexOf(flag);
+  const value = index >= 0 ? args[index + 1] : null;
+  if (value && !value.startsWith("--")) return value;
+  return fallback;
+}
+
+// The branch `live` may fast-forward, or null - with the reason already printed,
+// because serving without the watcher is still useful.
+function liveTarget() {
+  if (!git(["rev-parse", "--git-dir"])) {
+    say("this folder is not a git clone, so there is nothing to watch - serving files only");
+    return null;
+  }
+  const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "?";
+  if (!git(["remote", "get-url", "origin"])) {
+    say(`no "origin" remote to watch - serving files only`);
+    return null;
+  }
+  const upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  if (!upstream) {
+    say(`branch ${branch} tracks no remote branch - serving files only`);
+    say(`  fix: git branch --set-upstream-to origin/${branch}`);
+    return null;
+  }
+  return { branch: branch, upstream: upstream };
+}
+
+// One poll: fetch, then fast-forward if the remote moved.
+//   current  nothing new
+//   pulled   commits applied; Rojo's file watcher takes it from here
+//   offline  the remote was unreachable - transient, keep polling
+//   blocked  a rebase or stash conflict; a human has to step in, so the caller
+//            stops polling instead of reprinting the same failure forever
+function pollOnce(target, cwd) {
+  const dir = cwd || ROOT;
+  const fetched = spawnSync("git", ["fetch", "--quiet"], { cwd: dir, encoding: "utf8" });
+  if (fetched.error || fetched.status !== 0) {
+    const detail = (fetched.stderr || "").trim() || (fetched.error && fetched.error.message) || "git fetch failed";
+    return { state: "offline", detail: detail };
+  }
+  const behind = Number(git(["rev-list", "--count", `HEAD..${target.upstream}`], dir) || "0");
+  if (!behind) return { state: "current" };
+
+  const before = git(["rev-parse", "HEAD"], dir);
+  const pulled = spawnSync("git", ["pull", "--rebase", "--autostash"], { cwd: dir, encoding: "utf8" });
+  if (pulled.status !== 0) {
+    return { state: "blocked", detail: `${pulled.stdout || ""}${pulled.stderr || ""}`.trim() };
+  }
+  return { state: "pulled", behind: behind, before: before, after: git(["rev-parse", "HEAD"], dir) };
+}
+
+// `serve` plus a git watcher, in one window. Commits pushed to the tracked
+// branch are pulled and handed to the running Rojo server, which streams them
+// into the open Studio session - so an agent that cannot reach this machine
+// still lands its edits in the place, hands-free.
+async function live(args) {
+  const rojo = await requireRojo();
+  const port = argPort(args);
+  const asked = argValue(args, "--interval", process.env.ROJO_PULL_INTERVAL || DEFAULT_INTERVAL);
+  const seconds = Math.max(5, Number(asked) || DEFAULT_INTERVAL);
+  const target = liveTarget();
+
+  console.log(`Rojo ${rojo.version} (${rojo.source}) serving NECROTIDE: LAST STAND on port ${port}`);
+  console.log("in Studio: Plugins > Rojo > Connect. Leave this running while you edit.");
+  if (target) console.log(`watching ${target.upstream} every ${seconds}s - new commits go straight into Studio`);
+  console.log("");
+
+  let stopped = false;
+  let timer = null;
+  const child = spawn(rojo.exe, ["serve", "default.project.json", "--port", port], { cwd: ROOT, stdio: "inherit" });
+  child.on("exit", (code) => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    process.exit(code === null ? 1 : code);
+  });
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      child.kill(signal);
+    });
+  }
+
+  if (!target) return;
+
+  let lastOffline = null;
+  const tick = () => {
+    if (stopped) return;
+    const result = pollOnce(target);
+    if (result.state === "pulled") {
+      say(`pulled ${result.behind} commit(s) from ${target.upstream}`);
+      const scripts = reportScripts(result.before, result.after, SAY_INDENT);
+      say(scripts ? "Rojo is pushing them into Studio now" : "no script changes, so Studio will not show anything new");
+      lastOffline = null;
+    } else if (result.state === "offline") {
+      // Print a given failure once, not once per interval.
+      if (result.detail !== lastOffline) {
+        say(`cannot reach ${target.upstream.split("/")[0]}, still trying: ${result.detail.split("\n")[0]}`);
+        lastOffline = result.detail;
+      }
+    } else if (result.state === "blocked") {
+      say("git pull needs a hand - the watcher is stopping, Rojo keeps serving");
+      console.log(result.detail);
+      say("sort it out in another terminal, then restart `npm run live`");
+      return;
+    } else {
+      lastOffline = null;
+    }
+    timer = setTimeout(tick, seconds * 1000);
+  };
+  timer = setTimeout(tick, seconds * 1000);
 }
 
 function argPort(args) {
@@ -424,6 +563,8 @@ async function main() {
   if (command === "pull") return pull();
 
   requireNode();
+
+  if (command === "live") return live(args);
 
   if (command === "install") {
     const found = findRojo();
@@ -490,11 +631,15 @@ async function main() {
     return runRojo(rojo, ["serve", "default.project.json", "--port", port]);
   }
 
-  console.error(`unknown command "${command}" - try: doctor, install, plugin, serve, pull, syncback, sourcemap, build`);
+  console.error(`unknown command "${command}" - try: doctor, install, plugin, serve, live, pull, syncback, sourcemap, build`);
   process.exitCode = 1;
 }
 
-main().catch((error) => {
-  console.error(error.message || error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message || error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { pollOnce: pollOnce, reportScripts: reportScripts, liveTarget: liveTarget, findRojo: findRojo };

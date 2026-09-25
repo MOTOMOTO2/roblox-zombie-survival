@@ -182,7 +182,13 @@ Roblox can't be scripted from CI, so this project verifies itself three ways:
    wall and reachable from the room in front of it, and every station, crate
    anchor and barricade exit must stand in walkable space.
 
-Current state: **24 files parsed, 72 static checks, 245 runtime checks, 0
+   The client is covered too: the stub runs `ClientMain` top to bottom, builds
+   the real HUD, feeds it every payload shape the server sends, and then fires
+   the connected render-step and input handlers so the per-frame code and every
+   keybind execute. Event connections reject a nil callback the way Roblox does,
+   so a misspelled handler fails the run rather than the game.
+
+Current state: **24 files parsed, 72 static checks, 283 runtime checks, 0
 failures.**
 
 ```

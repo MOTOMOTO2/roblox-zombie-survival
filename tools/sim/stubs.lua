@@ -67,11 +67,28 @@ Vector3mt.__index = function(t, k)
 end
 
 Vector3 = { new = v3, zero = v3(0, 0, 0), one = v3(1, 1, 1) }
-Vector2 = {
-	new = function(x, y)
-		return { X = x or 0, Y = y or 0 }
-	end,
-}
+local Vector2mt = {}
+local function v2(x, y)
+	return setmetatable({ X = x or 0, Y = y or 0 }, Vector2mt)
+end
+Vector2mt.__add = function(a, b) return v2(a.X + b.X, a.Y + b.Y) end
+Vector2mt.__sub = function(a, b) return v2(a.X - b.X, a.Y - b.Y) end
+Vector2mt.__mul = function(a, b)
+	if type(a) == "number" then return v2(b.X * a, b.Y * a) end
+	if type(b) == "number" then return v2(a.X * b, a.Y * b) end
+	return v2(a.X * b.X, a.Y * b.Y)
+end
+Vector2mt.__index = function(t, k)
+	if k == "Magnitude" then
+		return math.sqrt(t.X * t.X + t.Y * t.Y)
+	elseif k == "Unit" then
+		local m = math.sqrt(t.X * t.X + t.Y * t.Y)
+		if m == 0 then return v2(0, 0) end
+		return v2(t.X / m, t.Y / m)
+	end
+	return nil
+end
+Vector2 = { new = v2, zero = v2(0, 0) }
 
 -- Colors, UDim, CFrame -------------------------------------------------------
 local function color(r, g, b)
@@ -270,8 +287,8 @@ end
 function InstanceApi:GetAttribute(name)
 	return rawget(self, "__attributes")[name]
 end
-function InstanceApi:GetPropertyChangedSignal()
-	return { Connect = function() return { Disconnect = function() end } end }
+function InstanceApi:GetPropertyChangedSignal(property)
+	return newSignal(self, "Changed:" .. tostring(property))
 end
 function InstanceApi:LoadCharacter() end
 function InstanceApi:SetStateEnabled() end
@@ -282,14 +299,47 @@ function InstanceApi:GetPivot() return CFrame.identity end
 function InstanceApi:Play() end
 function InstanceApi:Emit() end
 function InstanceApi:Connect(fn)
-	return { Disconnect = function() end, fn = fn }
+	if type(fn) ~= "function" then
+		error("Connect expects a function, got " .. type(fn), 0)
+	end
+	return { Disconnect = function() end, Connected = true }
 end
 
 local signalNames = {
 	"Triggered", "PlayerAdded", "PlayerRemoving", "CharacterAdded", "Died", "Heartbeat",
 	"RenderStepped", "Stepped", "OnServerEvent", "OnClientEvent", "Changed", "Touched",
-	"InputBegan", "InputEnded", "InputChanged", "PromptShown",
+	"InputBegan", "InputEnded", "InputChanged", "PromptShown", "Completed",
 }
+
+local function newSignal(owner, name)
+	local connections = {}
+	local signal = { __connections = connections, __name = name }
+	signal.Connect = function(_, fn)
+		if type(fn) ~= "function" then
+			error("Connect expects a function for " .. tostring(name) .. ", got " .. type(fn), 0)
+		end
+		table.insert(connections, fn)
+		return { Disconnect = function() end, Connected = true }
+	end
+	signal.Once = signal.Connect
+	signal.Wait = function() return nil end
+	return signal
+end
+
+-- Invokes everything connected to one signal, so per-frame and input code can be
+-- exercised instead of merely registered.
+function SIM_FIRE(instance, signalName, ...)
+	local signal = rawget(instance, signalName)
+	if not signal or not signal.__connections then
+		error("no signal " .. tostring(signalName) .. " to fire")
+	end
+	local fired = 0
+	for _, fn in ipairs(signal.__connections) do
+		fn(...)
+		fired = fired + 1
+	end
+	return fired
+end
 
 local function newInstance(className, name)
 	local inst = setmetatable({}, Instancemt)
@@ -300,7 +350,7 @@ local function newInstance(className, name)
 	rawset(inst, "__attributes", {})
 	rawset(inst, "__api", InstanceApi)
 	for _, signal in ipairs(signalNames) do
-		rawset(inst, signal, { Connect = function(_, fn) return { Disconnect = function() end, fn = fn } end })
+		rawset(inst, signal, newSignal(inst, signal))
 	end
 	rawset(inst, "FireClient", function() end)
 	rawset(inst, "FireAllClients", function() end)
@@ -368,7 +418,13 @@ game = {
 workspace = newInstance("Workspace", "Workspace")
 rawset(workspace, "Raycast", function() return nil end)
 rawset(workspace, "GetServerTimeNow", function() return os.clock() end)
-rawset(workspace, "CurrentCamera", newInstance("Camera", "Camera"))
+local camera = newInstance("Camera", "Camera")
+rawset(camera, "ViewportSize", Vector2.new(1920, 1080))
+rawset(camera, "CFrame", CFrame.new(Vector3.new(0, 6, 24)))
+rawset(camera, "ViewportPointToRay", function(_, x, y)
+	return { Origin = Vector3.new(0, 6, 24), Direction = Vector3.new(0, 0, -1) }
+end)
+rawset(workspace, "CurrentCamera", camera)
 RaycastParams = { new = function() return {} end }
 OverlapParams = { new = function() return {} end }
 
@@ -426,4 +482,21 @@ end
 
 function SIM_SERVICE(name)
 	return service(name)
+end
+
+-- Scripts and LocalScripts are not requireable, so they are run directly with a
+-- `script` global pointing at where they would live in the tree.
+function SIM_RUN_SCRIPT(source, name, scriptInstance)
+	local chunk, err = load(source, "@" .. name)
+	if not chunk then
+		error("compile failed for " .. name .. ": " .. tostring(err), 0)
+	end
+	local previous = script
+	script = scriptInstance
+	local ok, runErr = pcall(chunk)
+	script = previous
+	if not ok then
+		error(runErr, 0)
+	end
+	return true
 end

@@ -220,6 +220,8 @@ local humanoid = mk("Humanoid", "Humanoid", character)
 humanoid.Health = 100
 humanoid.MaxHealth = 100
 humanoid.WalkSpeed = 16
+humanoid.MoveDirection = Vector3.new(0, 0, 0)
+humanoid.AutoRotate = true
 character.PrimaryPart = root
 player.Character = character
 
@@ -433,6 +435,150 @@ local snapshot = S.WaveService.snapshot()
 check(snapshot.phase == "lobby", "the run starts in the lobby", snapshot.phase)
 check(snapshot.finalWave == GameConfig.FinalBossWave, "the snapshot reports the final wave")
 check(S.WaveService.currentWave() == 0, "no wave has started yet")
+
+--------------------------------------------------------------------------------
+-- 9. the client: ClientMain and the HUD actually run
+--------------------------------------------------------------------------------
+
+-- LocalPlayer has to exist before the client modules are required
+local playerGui = mk("PlayerGui", "PlayerGui", player)
+rawset(Players, "LocalPlayer", player)
+
+local StarterPlayer = SIM_SERVICE("StarterPlayer")
+local UserInputService = SIM_SERVICE("UserInputService")
+local RunService = SIM_SERVICE("RunService")
+local starterPlayerScripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
+check(starterPlayerScripts ~= nil, "the client tree is mounted")
+
+local clientScript = mk("LocalScript", "ClientMain", starterPlayerScripts)
+local ranClient, clientErr = pcall(
+	SIM_RUN_SCRIPT,
+	SIM_SCRIPT_SOURCE("StarterPlayer/StarterPlayerScripts/ClientMain"),
+	"ClientMain",
+	clientScript
+)
+check(ranClient, "ClientMain runs top to bottom", clientErr)
+SIM_FLUSH()
+
+check(playerGui:FindFirstChild("NecrotideHud") ~= nil, "ClientMain built the HUD")
+
+local Modules = starterPlayerScripts:WaitForChild("Modules")
+local Hud = require(Modules.Hud)
+local Effects = require(Modules.Effects)
+
+check(Hud.build() == nil, "a second HUD is refused instead of stacking")
+
+-- every server -> client payload shape the game actually sends
+local hudCalls = {
+	{ "economy", function() Hud.setEconomy(S.Economy.snapshot(player)) end },
+	{ "wave", function() Hud.setWave(S.WaveService.snapshot()) end },
+	{ "loadout", function() Hud.setLoadout(S.Loadout.snapshot(player)) end },
+	{ "tonics", function() Hud.setTonics({ "ironhide", "deadeye", "secondwind" }) end },
+	{ "boss active", function()
+		Hud.setBoss({ active = true, name = "HOLLOW SOVEREIGN", title = "THE LAST VOICE", health = 40000, maxHealth = 72000, final = true })
+	end },
+	{ "boss cleared", function() Hud.setBoss({ active = false }) end },
+	{ "announce", function()
+		Hud.announce({ title = "WAVE 5", subtitle = "BOSS: The Rust Warden", color = { 255, 90, 90 }, duration = 2, big = true })
+	end },
+	{ "toast", function() Hud.toast({ text = "Picked up Talon AR", color = { 150, 255, 170 } }) end },
+	{ "hitmarker", function() Hud.flashHitmarker({ hit = true, headshot = true, killed = true, boss = false }) end },
+	{ "damage vignette", function() Hud.flashHitmarker({ taken = true, amount = 22, source = "Husk" }) end },
+	{ "crate roulette", function()
+		Hud.crateSpin({ reel = { "Reaper LMG", "Arcbolt Lance" }, result = "Arcbolt Lance", duration = 0.3, doll = false })
+	end },
+	{ "hollow doll", function()
+		Hud.crateSpin({ reel = { "Reaper LMG" }, result = "THE HOLLOW DOLL", duration = 0.2, doll = true })
+	end },
+	{ "powerup", function()
+		Hud.powerup({ id = "purge", name = "PURGE PULSE", blurb = "The horde is erased", color = { 255, 240, 120 }, by = "TestOperative" })
+	end },
+	{ "downed", function() Hud.setDowned(S.PlayerService.snapshot(player)) end },
+	{ "run ended", function()
+		Hud.runEnded({ victory = true, wave = 20, title = "THE HOLLOW SOVEREIGN FALLS", subtitle = "The Ashvault holds." })
+	end },
+	{ "help toggle", function() Hud.toggleHelp() end },
+	{ "frame step", function() Hud.step(1 / 60, humanoid, 0.4) end },
+}
+for _, entry in ipairs(hudCalls) do
+	local ok, err = pcall(entry[2])
+	check(ok, "HUD handles " .. entry[1], err)
+end
+SIM_FLUSH()
+
+-- cosmetic client feedback
+local fxCalls = {
+	{ "tracer volley", function()
+		Effects.shot({
+			shooter = player,
+			points = { Vector3.new(10, 5, -20), Vector3.new(12, 5, -22) },
+			color = { 255, 222, 160 },
+			chain = { Vector3.new(14, 5, -24) },
+			upgraded = true,
+			class = "Anomaly",
+		})
+	end },
+	{ "sound kit", function() Effects.play("shot", 0.3, 1) end },
+	{ "unknown sound is ignored", function() Effects.play("does_not_exist") end },
+	{ "camera kick", function()
+		Effects.addKick(1.5)
+		Effects.stepCamera(1 / 60)
+		Effects.stepCamera(1 / 60)
+	end },
+}
+for _, entry in ipairs(fxCalls) do
+	local ok, err = pcall(entry[2])
+	check(ok, "effects handle " .. entry[1], err)
+end
+
+-- drive the per-frame client loop and the input handlers
+local framesOk, frameErr = pcall(function()
+	for _ = 1, 3 do
+		SIM_FIRE(RunService, "RenderStepped", 1 / 60)
+	end
+end)
+check(framesOk, "the client render loop runs", frameErr)
+
+local mouseDown = { UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown }
+local keyOf = function(code)
+	return { UserInputType = Enum.UserInputType.Keyboard, KeyCode = code }
+end
+local inputs = {
+	{ "fire", mouseDown },
+	{ "reload", keyOf(Enum.KeyCode.R) },
+	{ "slot one", keyOf(Enum.KeyCode.One) },
+	{ "slot two", keyOf(Enum.KeyCode.Two) },
+	{ "quick swap", keyOf(Enum.KeyCode.Q) },
+	{ "help card", keyOf(Enum.KeyCode.H) },
+	{ "sprint", keyOf(Enum.KeyCode.LeftShift) },
+	{ "mouse lock toggle", keyOf(Enum.KeyCode.LeftAlt) },
+}
+for _, entry in ipairs(inputs) do
+	local ok, err = pcall(SIM_FIRE, UserInputService, "InputBegan", entry[2], false)
+	check(ok, "input handled: " .. entry[1], err)
+end
+for _, entry in ipairs({ { "release trigger", mouseDown }, { "release sprint", keyOf(Enum.KeyCode.LeftShift) } }) do
+	local ok, err = pcall(SIM_FIRE, UserInputService, "InputEnded", entry[2])
+	check(ok, "input handled: " .. entry[1], err)
+end
+check(
+	pcall(SIM_FIRE, UserInputService, "InputBegan", mouseDown, true) == true,
+	"input already consumed by the UI is ignored"
+)
+
+-- with the trigger held, the render loop must keep an automatic weapon firing
+S.Loadout.give(player, "talon", false)
+SIM_FLUSH()
+Hud.setLoadout(S.Loadout.snapshot(player))
+local autoOk, autoErr = pcall(function()
+	SIM_FIRE(UserInputService, "InputBegan", mouseDown, false)
+	for _ = 1, 4 do
+		SIM_ADVANCE(0.2)
+		SIM_FIRE(RunService, "RenderStepped", 1 / 60)
+	end
+	SIM_FIRE(UserInputService, "InputEnded", mouseDown)
+end)
+check(autoOk, "automatic fire loop runs while the trigger is held", autoErr)
 
 --------------------------------------------------------------------------------
 -- balance table (informational)

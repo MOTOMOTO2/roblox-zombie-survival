@@ -50,6 +50,29 @@ for (const file of mountableFiles()) {
 }
 const sourcesChunk = `local SOURCES = {\n${entries.join("\n")}\n}\nSIM_MOUNT(SOURCES)\n`;
 
+// Scripts and LocalScripts cannot be mounted as modules, but their source is still
+// handed to Lua so the tests can run them with a fake `script` global.
+const scriptEntries = [];
+for (const file of walk(SRC)) {
+  const base = path.basename(file);
+  if (!base.endsWith(".server.lua") && !base.endsWith(".client.lua")) continue;
+  const key = path
+    .relative(SRC, file)
+    .replace(/\\/g, "/")
+    .replace(/\.(server|client)\.lua$/, "");
+  scriptEntries.push(`  ["${key}"] = ${longBracket(fs.readFileSync(file, "utf8"))},`);
+}
+const scriptsChunk = [
+  `local SCRIPT_SOURCES = {`,
+  scriptEntries.join("\n"),
+  `}`,
+  `function SIM_SCRIPT_SOURCE(key)`,
+  `\tif not SCRIPT_SOURCES[key] then error("no script source for " .. tostring(key)) end`,
+  `\treturn SCRIPT_SOURCES[key]`,
+  `end`,
+  ``,
+].join("\n");
+
 const stubs = fs.readFileSync(path.join(SIM, "stubs.lua"), "utf8");
 const tests = fs.readFileSync(path.join(SIM, "tests.lua"), "utf8");
 
@@ -62,7 +85,7 @@ function SIM_ADVANCE(dt) simTime = simTime + dt end
 function SIM_NOW() return simTime end
 `;
 
-const program = [stubs, clock, sourcesChunk, tests].join("\n");
+const program = [stubs, clock, sourcesChunk, scriptsChunk, tests].join("\n");
 
 const L = lauxlib.luaL_newstate();
 lualib.luaL_openlibs(L);

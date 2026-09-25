@@ -177,9 +177,12 @@ Roblox can't be scripted from CI, so this project verifies itself three ways:
    game for real: it builds the map, initialises all nine services, buys and
    forges a gun, empties and reloads a magazine against a controllable clock,
    downs and revives a player, spawns the Rust Warden and phases it, purges a
-   wave, tears and repairs a barricade, and prints the balance table.
+   wave, tears and repairs a barricade, and prints the balance table. It also
+   checks the generated geometry: every Armory Rack must be backed by a solid
+   wall and reachable from the room in front of it, and every station, crate
+   anchor and barricade exit must stand in walkable space.
 
-Current state: **24 files parsed, 72 static checks, 194 runtime checks, 0
+Current state: **24 files parsed, 72 static checks, 245 runtime checks, 0
 failures.**
 
 ```

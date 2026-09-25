@@ -3299,14 +3299,21 @@ local COVER = {
 	{ pos = Vector3.new(-16, 1.5, 16), size = Vector3.new(9, 3, 9) },
 }
 
--- Armory Racks: buyable wall weapons.
+-- Armory Racks: buyable wall weapons. `pos` sits just off a wall face and `face`
+-- points away from that wall, into the room the player stands in. The wall planes
+-- these hang on are:
+--   courtyard-facing outer walls of the north buildings   z = -29.5
+--   NW building, interior west wall                       x = -86.5
+--   NE building, interior north wall                      z = -83.5
+--   SE building, interior east wall                       x =  86.5
+--   SW building, interior south wall                      z =  83.5
 local WALL_BUYS = {
-	{ weapon = "vesper45", pos = Vector3.new(-8, 4, -28), face = Vector3.new(0, 0, -1) },
-	{ weapon = "scrapper", pos = Vector3.new(-30, 4, 26), face = Vector3.new(-1, 0, 0) },
-	{ weapon = "hornet", pos = Vector3.new(58, 4, -84), face = Vector3.new(0, 0, -1) },
-	{ weapon = "ranger12", pos = Vector3.new(-58, 4, -84), face = Vector3.new(0, 0, -1) },
-	{ weapon = "cyclone", pos = Vector3.new(84, 4, 58), face = Vector3.new(1, 0, 0) },
-	{ weapon = "talon", pos = Vector3.new(-84, 4, 58), face = Vector3.new(-1, 0, 0) },
+	{ weapon = "vesper45", pos = Vector3.new(-40, 4, -29.0), face = Vector3.new(0, 0, 1) },
+	{ weapon = "scrapper", pos = Vector3.new(40, 4, -29.0), face = Vector3.new(0, 0, 1) },
+	{ weapon = "ranger12", pos = Vector3.new(-86.0, 4, -60), face = Vector3.new(1, 0, 0) },
+	{ weapon = "hornet", pos = Vector3.new(58, 4, -83.0), face = Vector3.new(0, 0, 1) },
+	{ weapon = "cyclone", pos = Vector3.new(86.0, 4, 58), face = Vector3.new(-1, 0, 0) },
+	{ weapon = "talon", pos = Vector3.new(-58, 4, 83.0), face = Vector3.new(0, 0, -1) },
 }
 
 -- Tonic Stills.
@@ -3329,7 +3336,8 @@ local CRATE_SPOTS = {
 }
 
 local FORGE_SPOT = Vector3.new(-58, 0, 58)
-local PLAYER_SPAWN = Vector3.new(0, 4, 0)
+-- south of the central brazier, so nobody spawns inside it
+local PLAYER_SPAWN = Vector3.new(0, 4, 20)
 
 local function newPart(name, size, position, color, parent, material)
 	local part = Instance.new("Part")
@@ -3545,7 +3553,7 @@ local function buildCover(parent)
 end
 
 local function buildSpawn(parent)
-	local pad = newPart("SpawnPad", Vector3.new(26, 0.6, 26), Vector3.new(0, 0.3, 0), Color3.fromRGB(70, 90, 110), parent, Enum.Material.Metal)
+	local pad = newPart("SpawnPad", Vector3.new(26, 0.6, 26), Vector3.new(PLAYER_SPAWN.X, 0.3, PLAYER_SPAWN.Z), Color3.fromRGB(70, 90, 110), parent, Enum.Material.Metal)
 	pad.CanCollide = false
 
 	local spawn = Instance.new("SpawnLocation")

@@ -64,8 +64,8 @@ local COVER = {
 --   SE building, interior east wall                       x =  86.5
 --   SW building, interior south wall                      z =  83.5
 local WALL_BUYS = {
-	{ weapon = "vesper45", pos = Vector3.new(-40, 4, -29.0), face = Vector3.new(0, 0, -1) },
-	{ weapon = "scrapper", pos = Vector3.new(40, 4, -29.0), face = Vector3.new(0, 0, -1) },
+	{ weapon = "vesper45", pos = Vector3.new(-40, 4, -29.0), face = Vector3.new(0, 0, 1) },
+	{ weapon = "scrapper", pos = Vector3.new(40, 4, -29.0), face = Vector3.new(0, 0, 1) },
 	{ weapon = "ranger12", pos = Vector3.new(-86.0, 4, -60), face = Vector3.new(1, 0, 0) },
 	{ weapon = "hornet", pos = Vector3.new(58, 4, -83.0), face = Vector3.new(0, 0, 1) },
 	{ weapon = "cyclone", pos = Vector3.new(86.0, 4, 58), face = Vector3.new(-1, 0, 0) },

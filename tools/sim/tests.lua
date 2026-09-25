@@ -112,6 +112,56 @@ check(map.bounds == 110, "arena half-extent", map.bounds)
 local structureParts = #map.structure:GetChildren()
 check(structureParts > 40, "arena geometry was generated", structureParts .. " top-level parts")
 
+-- Geometry checks. Every wall weapon has to hang on something solid, and every
+-- station has to stand somewhere a player can actually walk to. These are easy to
+-- get wrong by hand, because the coordinates are typed out in MapBuilder.
+local solids = {}
+for _, descendant in ipairs(map.structure:GetDescendants()) do
+	if descendant.ClassName == "Part" and descendant.CanCollide ~= false then
+		table.insert(solids, descendant)
+	end
+end
+check(#solids > 60, "collected the collidable geometry", #solids .. " parts")
+
+local function solidAt(point, pad)
+	pad = pad or 0
+	for _, part in ipairs(solids) do
+		local half = part.Size * 0.5
+		local delta = point - part.Position
+		if math.abs(delta.X) <= half.X + pad
+			and math.abs(delta.Y) <= half.Y + pad
+			and math.abs(delta.Z) <= half.Z + pad then
+			return part
+		end
+	end
+	return nil
+end
+
+for _, spec in ipairs(map.wallBuys) do
+	local behind = spec.pos - spec.face * 2.2
+	local inFront = spec.pos + spec.face * 2.5
+	check(solidAt(behind, 0.6) ~= nil, "armory rack for " .. spec.weapon .. " is mounted on a wall")
+	check(solidAt(inFront, 0) == nil, "armory rack for " .. spec.weapon .. " is reachable from the room")
+end
+
+local standing = { { "player spawn", map.playerSpawn }, { "overforge", map.forgePosition } }
+for _, spec in ipairs(map.tonicSpots) do
+	table.insert(standing, { "tonic still " .. spec.tonic, spec.pos })
+end
+for index, pos in ipairs(map.cratePositions) do
+	table.insert(standing, { "fate crate anchor " .. index, pos })
+end
+for _, entry in ipairs(standing) do
+	local point = Vector3.new(entry[2].X, 5, entry[2].Z)
+	check(solidAt(point, 0) == nil, entry[1] .. " stands in clear space")
+	check(math.abs(entry[2].X) < map.bounds - 6 and math.abs(entry[2].Z) < map.bounds - 6, entry[1] .. " is inside the arena")
+end
+
+for _, barrier in ipairs(map.barriers) do
+	check(solidAt(Vector3.new(barrier.inside.X, 6, barrier.inside.Z), 0) == nil, barrier.id .. " opens into walkable floor")
+	check(solidAt(Vector3.new(barrier.outside.X, 6, barrier.outside.Z), 0) == nil, barrier.id .. " has clear ground outside")
+end
+
 --------------------------------------------------------------------------------
 -- 3. boot every service the way Bootstrap does
 --------------------------------------------------------------------------------

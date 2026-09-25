@@ -19,42 +19,72 @@ the code; the other two are one-shot imports.
 ### 1. Live sync with Rojo (edit here, see it in Studio)
 
 [Rojo](https://rojo.space) streams `src/` into an open Studio place: save a
-file, the matching script updates a second later. One-time setup, then one
-command.
+file, the matching script updates a second later. This is the setup to use if
+you are going to keep working on the game — yours is the only copy of the place,
+and the code lives in git.
+
+#### macOS (MacBook)
+
+You need [Node](https://nodejs.org) 18 or newer — `node -v` to check, `brew
+install node` or the installer from nodejs.org if you don't have it. Then, in
+Terminal:
 
 ```bash
-npm install
-npm run sync:plugin    # puts the Rojo plugin in Studio - restart Studio afterwards
-npm run sync           # starts the sync server; leave it running while you work
+git clone https://github.com/MOTOMOTO2/roblox-zombie-survival.git
+cd roblox-zombie-survival
+npm run setup     # fetches the pinned Rojo into .tools/ and installs the Studio plugin
+npm run sync      # starts the sync server - leave this window open
 ```
 
-Then in Studio, with the place you want to sync into open:
+`npm run setup` is a first-run-only step. After that, `npm run sync` is the
+whole ritual — or double-click **`start-sync.command`** in Finder, which does
+both and needs no Terminal knowledge.
 
-1. **Plugins → Rojo → Connect**. The defaults (`localhost`, port `34872`) are
+**Quit Studio completely and reopen it** after the first `npm run setup`, or the
+new plugin won't be loaded.
+
+#### Windows
+
+Identical, with the same commands, in PowerShell or Git Bash. The `.command`
+files are macOS-only; use `npm run sync`.
+
+#### Connecting the place you already have open
+
+1. Open your place in Studio (the one you imported — or **File → New** if you'd
+   rather start clean, since all the content is generated from code).
+2. **Plugins → Rojo → Connect**. The defaults, `localhost` port `34872`, are
    exactly what `npm run sync` serves.
-2. The tree fills in: `ReplicatedStorage.NecrotideShared`,
+3. Rojo shows what it is about to change and you accept it. If the place already
+   contains a copy of the game (you imported the `.rbxlx` or ran the installer),
+   the existing scripts are *updated in place* rather than duplicated — matching
+   name and class is how Rojo pairs them up. The files on disk win.
+4. The tree fills in: `ReplicatedStorage.NecrotideShared`,
    `ServerScriptService.Bootstrap` and `Services`, and
    `StarterPlayer.StarterPlayerScripts.ClientMain` and `Modules`.
-3. Press **Play**. Save the place (Ctrl+S) to keep the scripts in it.
+5. Press **Play**. Save the place (⌘S) to keep the scripts in it.
+
+Save the place somewhere of your own — `place.rbxl` in this folder is
+gitignored, so it will not fight with the generated files in `build/`.
 
 Worth knowing:
 
 - **You do not have to install anything else first.** If no `rojo` is on your
-  PATH, `npm run sync` downloads the pinned Rojo **7.7.0** into `.tools/`
+  PATH, the setup downloads the pinned Rojo **7.7.0** into `.tools/`
   (gitignored, nothing system-wide) and uses that. If you prefer a managed
   toolchain, `rokit.toml` pins the same version — `rokit install`. Aftman users
   can copy it to `aftman.toml`.
-- **Sync is one-way: files → Studio.** Editing a synced script inside Studio
-  works until the next save on disk overwrites it, and nothing is written back
-  to `src/`.
+- **Sync is one-way while it runs: files → Studio.** Editing a synced script
+  inside Studio works until the next save on disk overwrites it. To go the other
+  way on purpose, see [`npm run sync:back`](#pulling-studio-edits-back-into-the-repo).
 - **Your place is not taken over.** Rojo only manages what
   `default.project.json` maps — the three containers listed above; anything
   else in your Workspace or Lighting is left alone. The arena
   is generated at run time by `MapBuilder.lua`, so an empty viewport before you
   press Play is correct.
-- `npm run doctor` checks the whole path — project paths, Rojo version, whether
-  the Studio plugin is installed, whether the port is free — and prints what is
-  missing.
+- `npm run doctor` checks the whole path — project paths, Node, Studio, Rojo
+  version, whether the plugin is installed, whether you are behind on git,
+  whether the port is free — and prints what is missing. Run it first whenever
+  something is off.
 - Port already taken? `npm run sync -- --port 34873`, then type that port into
   the plugin.
 
@@ -63,10 +93,12 @@ Worth knowing:
 
 | Symptom | Fix |
 | --- | --- |
-| No **Rojo** button in the Plugins tab | `npm run sync:plugin`, then fully restart Studio |
+| No **Rojo** button in the Plugins tab | `npm run sync:plugin`, then quit and reopen Studio (on a Mac, ⌘Q — closing the window is not enough) |
 | Plugin says it cannot reach the server | `npm run sync` has to be running in this folder at the same time; check the port matches |
 | Plugin warns about a version mismatch | The plugin and CLI must be the same major version — `npm run sync:plugin` reinstalls the plugin that matches the pinned CLI |
 | Scripts arrive but nothing happens on Play | Check the Output window; `Bootstrap` needs `ReplicatedStorage.NecrotideShared` to be present, which means letting the first sync finish before pressing Play |
+| `"rojo" cannot be opened because Apple cannot check it` | Something re-quarantined the binary. `npm run doctor` says so and prints the one-line `xattr -d` fix; deleting `.tools/` and re-running `npm run setup` also works |
+| `zsh: permission denied: ./start-sync.command` | `chmod +x start-sync.command` (git should preserve the bit, but a zip download will not) |
 
 </details>
 
@@ -104,6 +136,71 @@ Worth knowing:
 > The game builds its own map into `Workspace.Ashvault` at runtime. If your place
 > already has a baseplate or other geometry, the arena will be dropped on top of
 > it at the origin — delete your own parts first for a clean result.
+
+---
+
+## Editing it together
+
+The code lives in the GitHub repo; your Studio place is just a view of it. That
+is what makes two people (or you and Claude) able to work on the same game
+without stepping on each other.
+
+```
+Claude edits src/ ──> git push ──> you: npm run pull ──> Rojo ──> your Studio
+```
+
+**To take in changes made for you:**
+
+```bash
+npm run pull       # or double-click pull-latest.command in Finder
+```
+
+Leave `npm run sync` running in its own Terminal tab while you do it. `pull`
+fetches the new commits, lists which scripts changed, and the sync server pushes
+them into the open place on its own — no reconnect, no restart. Press Play
+again to see them. Uncommitted edits of yours are stashed and put back, so it
+is safe to run at any time.
+
+**To send your own changes back:**
+
+```bash
+git add -A
+git commit -m "raise the Ashvault barricade cost"
+git push
+```
+
+Then whoever is working with you pulls, exactly the same way.
+
+Two honest limits:
+
+- **Nobody can reach into your Studio session but you.** The Rojo server listens
+  on `localhost`, i.e. only your MacBook, and that is the right setting. Claude
+  edits files and commits them; your `npm run pull` is the step that carries
+  them across. Roblox's own Team Create is the tool for two people editing one
+  live place, and it is separate from this.
+- **Git is the source of truth, not the place file.** Anything you build by hand
+  in the Studio viewport lives only in your local `.rbxl` unless you either put
+  it in code (`MapBuilder.lua` generates the whole arena) or sync it back —
+  next section.
+
+### Pulling Studio edits back into the repo
+
+If you changed a script inside Studio and want to keep it:
+
+```bash
+# in Studio: File > Save As... -> place.rbxl in this folder
+npm run sync:back -- place.rbxl            # dry run: lists what would change
+npm run sync:back -- place.rbxl --write    # actually writes it over src/
+```
+
+This only touches the containers `default.project.json` maps — your Workspace
+geometry and Lighting are marked `$ignoreUnknownInstances` and are not
+serialised. Commit before `--write` so you can undo it with `git checkout .`.
+
+> `syncback` needs a place saved out of Studio, which has every service the
+> project references. Run against the trimmed `build/NecrotideLastStand.rbxlx`
+> instead and Rojo stops with *"The child 'Lighting' … is present only in a
+> project file"* — that is expected; use your own saved place.
 
 ---
 
@@ -206,15 +303,19 @@ npm run all        # check + build + verify + test + doctor
 | `npm run build` | Regenerates `build/*.rbxlx` and `build/*.rbxmx` from `src/` |
 | `npm run verify` | Parses the generated XML, confirms the instance tree, and statically resolves every `Net.get`, `require`, `S.Service.method` and `GameConfig.Key` reference |
 | `npm run test` | Runs the real game modules headlessly against a Roblox API stub |
-| `npm run doctor` | Checks the Studio sync path: project paths, Rojo, plugin, port |
+| `npm run doctor` | Checks the whole sync path: project paths, Node, Studio, Rojo, plugin, git state, port |
+| `npm run setup` | First-run convenience: `sync:install` + `sync:plugin` + `doctor` |
 | `npm run sync` | Starts the Rojo sync server (see [live sync](#1-live-sync-with-rojo-edit-here-see-it-in-studio)) |
+| `npm run pull` | Pulls new commits (stashing your edits) and reports which scripts changed |
 | `npm run sync:plugin` | Installs the Rojo Studio plugin for the current user |
 | `npm run sync:install` | Downloads the pinned Rojo CLI into `.tools/` without starting it |
 | `npm run sync:build` | Builds a place with Rojo into `build/rojo/` instead of `tools/build.js` |
+| `npm run sync:back -- <place.rbxl>` | Reverse direction: writes a saved place's scripts back over `src/` (dry run unless `--write`) |
 | `npm run sourcemap` | Writes `sourcemap.json` so Luau LSP can resolve `require`s |
 
-Only `npm run sync*` touches the network, and only to fetch that one pinned
-Rojo release. Everything else runs offline.
+Only `npm run sync*`, `npm run setup` and `npm run pull` touch the network —
+to fetch that one pinned Rojo release, and to talk to git. Everything else runs
+offline.
 
 ### How it is verified without Roblox
 
@@ -393,6 +494,13 @@ Decisions taken without asking, all easy to reverse:
 - **"Sync into Studio" is taken to mean Rojo live sync**, since that is the
   standard way to keep a repo like this and an open place in step. Rojo **7.7.0**
   is pinned, the CLI is vendored into `.tools/` on first use instead of being
-  installed system-wide, and the sync is left one-way (files → Studio). If you
-  only wanted the game in Studio once, use option 2 or 3 above and ignore all of
-  it.
+  installed system-wide, and the live sync is one-way (files → Studio); the
+  reverse is the deliberate, explicit `npm run sync:back`. If you only wanted the
+  game in Studio once, use option 2 or 3 above and ignore all of it.
+- **Collaboration goes through git, not through a shared Studio session.** The
+  Rojo server binds to `localhost` and is not exposed to the network; changes
+  travel as commits and land in Studio via `npm run pull`. Roblox Team Create is
+  the alternative if you want two people in one live place, and it does not
+  conflict with any of this.
+- **The `.command` launchers are macOS-only** double-click convenience wrappers
+  around `npm run sync` and `npm run pull`; nothing depends on them.

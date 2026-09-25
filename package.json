@@ -9,10 +9,13 @@
     "verify": "node tools/verify.js",
     "test": "node tools/sim.js",
     "doctor": "node tools/sync.js doctor",
+    "setup": "node tools/sync.js install && node tools/sync.js plugin && node tools/sync.js doctor",
     "sync": "node tools/sync.js serve",
+    "pull": "node tools/sync.js pull",
     "sync:install": "node tools/sync.js install",
     "sync:plugin": "node tools/sync.js plugin",
     "sync:build": "node tools/sync.js build",
+    "sync:back": "node tools/sync.js syncback",
     "sourcemap": "node tools/sync.js sourcemap",
     "all": "npm run check && npm run build && npm run verify && npm run test && npm run doctor"
   },

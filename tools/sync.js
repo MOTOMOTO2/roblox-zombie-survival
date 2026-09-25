@@ -6,6 +6,8 @@
  *   node tools/sync.js install    fetch the pinned Rojo CLI into .tools/bin
  *   node tools/sync.js plugin     install the Rojo Studio plugin for the local user
  *   node tools/sync.js serve      start the sync server (this one keeps running)
+ *   node tools/sync.js pull       git pull, so a running server streams the new code
+ *   node tools/sync.js syncback   pull scripts out of a .rbxl back into src/
  *   node tools/sync.js sourcemap  write sourcemap.json for Luau LSP
  *   node tools/sync.js build      build a place file with Rojo instead of tools/build.js
  *
@@ -26,10 +28,27 @@ const TOOLS_BIN = path.join(ROOT, ".tools", "bin");
 const ROJO_VERSION = "7.7.0";
 const DEFAULT_PORT = 34872;
 const WIN = process.platform === "win32";
+const MAC = process.platform === "darwin";
 const EXE = WIN ? "rojo.exe" : "rojo";
+const MIN_NODE = 18; // global fetch(), used to download the pinned Rojo
 
 let warnings = 0;
 let failures = 0;
+
+function nodeMajor() {
+  return Number(process.versions.node.split(".")[0]);
+}
+
+function requireNode() {
+  if (nodeMajor() >= MIN_NODE) return;
+  console.error(
+    `this tool needs Node ${MIN_NODE} or newer (found ${process.versions.node}).\n` +
+      (MAC
+        ? "on macOS: `brew install node`, or download the LTS installer from https://nodejs.org"
+        : "download the LTS installer from https://nodejs.org")
+  );
+  process.exit(1);
+}
 
 function ok(label) {
   console.log(`ok   ${label}`);
@@ -68,6 +87,20 @@ function findRojo() {
     return { exe, version, source };
   }
   return null;
+}
+
+// Gatekeeper refuses to exec anything carrying com.apple.quarantine. Node's
+// fetch does not set it, but a hand-downloaded release does, and the resulting
+// "cannot be opened" dialog is a dead end. Clearing it is a no-op otherwise.
+function quarantined(file) {
+  if (!MAC || !fs.existsSync(file)) return false;
+  const run = spawnSync("xattr", ["-p", "com.apple.quarantine", file], { encoding: "utf8" });
+  return run.status === 0;
+}
+
+function clearQuarantine(file) {
+  if (!quarantined(file)) return false;
+  return spawnSync("xattr", ["-d", "com.apple.quarantine", file]).status === 0;
 }
 
 function releaseAsset() {
@@ -130,6 +163,7 @@ async function downloadRojo() {
   const target = path.join(TOOLS_BIN, EXE);
   fs.writeFileSync(target, entry.data);
   if (!WIN) fs.chmodSync(target, 0o755);
+  clearQuarantine(target);
 
   const version = rojoVersion(target);
   if (version !== ROJO_VERSION) {
@@ -160,6 +194,22 @@ function pluginDir() {
   }
   if (process.platform === "darwin") return path.join(os.homedir(), "Documents", "Roblox", "Plugins");
   return null; // Studio is Windows/macOS only
+}
+
+// Path of the Studio app, if it is where the installer puts it.
+function studioApp() {
+  const candidates = MAC
+    ? ["/Applications/RobloxStudio.app", path.join(os.homedir(), "Applications", "RobloxStudio.app")]
+    : WIN
+      ? [path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Roblox", "Versions")]
+      : [];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function git(args) {
+  const run = spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+  if (run.error || run.status !== 0) return null;
+  return (run.stdout || "").trim();
 }
 
 function portFree(port) {
@@ -236,9 +286,48 @@ function checkProject() {
   else fail("src/ contains source files", "nothing to sync");
 }
 
+function checkGit() {
+  if (!git(["rev-parse", "--git-dir"])) {
+    warn("this folder is not a git clone", "you can still sync; you just cannot `npm run pull` new commits");
+    return;
+  }
+  const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "?";
+  const remote = git(["remote", "get-url", "origin"]);
+  if (!remote) {
+    warn(`on branch ${branch} with no "origin" remote`, "`npm run pull` needs one to fetch commits from");
+    return;
+  }
+  ok(`git clone of ${remote} on branch ${branch}`);
+
+  const upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  if (!upstream) {
+    warn(`branch ${branch} is not tracking a remote branch`, `\`git branch --set-upstream-to origin/${branch}\``);
+    return;
+  }
+  // Deliberately no network fetch here: doctor is meant to be instant and to
+  // work offline. This reports what the last fetch already knows.
+  const counts = git(["rev-list", "--left-right", "--count", `${upstream}...HEAD`]);
+  const [behind, ahead] = (counts || "0\t0").split(/\s+/).map(Number);
+  if (behind) warn(`${behind} commit(s) waiting on ${upstream}`, "`npm run pull` to take them into Studio");
+  else ok(`up to date with ${upstream} as of the last fetch`);
+  if (ahead) ok(`${ahead} local commit(s) not pushed yet`);
+
+  const dirty = git(["status", "--porcelain"]);
+  if (dirty) warn(`${dirty.split("\n").length} uncommitted change(s)`, "`npm run pull` stashes and restores them for you");
+}
+
 async function doctor() {
   console.log("-- project");
   checkProject();
+
+  console.log("-- machine");
+  const platform = { win32: "Windows", darwin: "macOS", linux: "Linux" }[process.platform] || process.platform;
+  if (nodeMajor() >= MIN_NODE) ok(`Node ${process.versions.node} on ${platform} (${process.arch})`);
+  else fail(`Node ${MIN_NODE}+`, `found ${process.versions.node} on ${platform}`);
+
+  const studio = studioApp();
+  if (studio) ok(`Roblox Studio found (${studio})`);
+  else if (MAC || WIN) warn("Roblox Studio not found in the usual place", "install it from https://create.roblox.com, or ignore this if it lives elsewhere");
 
   console.log("-- tooling");
   const rojo = findRojo();
@@ -246,6 +335,9 @@ async function doctor() {
     ok(`Rojo ${rojo.version} (${rojo.source})`);
     if (rojo.version !== ROJO_VERSION) {
       warn(`Rojo ${rojo.version} is not the pinned ${ROJO_VERSION}`, `it is used as-is; rokit.toml pins ${ROJO_VERSION}`);
+    }
+    if (quarantined(rojo.exe)) {
+      warn("macOS has quarantined the Rojo binary", `\`xattr -d com.apple.quarantine ${rojo.exe}\` - or delete .tools/ and run \`npm run sync:install\``);
     }
   } else {
     warn("no Rojo CLI found", `\`npm run sync:install\` downloads Rojo ${ROJO_VERSION} into .tools/bin - nothing system-wide`);
@@ -261,6 +353,9 @@ async function doctor() {
     if (installed) ok(`Rojo Studio plugin installed (${installed})`);
     else warn("Rojo Studio plugin is not installed", "run `npm run sync:plugin`, then restart Studio");
   }
+
+  console.log("-- collaboration");
+  checkGit();
 
   console.log("-- network");
   const port = Number(process.env.ROJO_PORT || DEFAULT_PORT);
@@ -281,6 +376,40 @@ async function doctor() {
 
 // ------------------------------------------------------------------ commands
 
+// `git pull` with the working tree protected. A Rojo server watching src/ picks
+// the new files up on its own, so this is the whole "get Claude's edits into my
+// Studio" step - no restart, no reconnect.
+function pull() {
+  if (!git(["rev-parse", "--git-dir"])) {
+    console.error("not a git clone - nothing to pull");
+    process.exitCode = 1;
+    return;
+  }
+  const before = git(["rev-parse", "HEAD"]);
+  const run = spawnSync("git", ["pull", "--rebase", "--autostash"], { cwd: ROOT, stdio: "inherit" });
+  if (run.status !== 0) {
+    console.error("\ngit pull failed. Resolve the conflict above, then run it again.");
+    process.exitCode = run.status || 1;
+    return;
+  }
+  const after = git(["rev-parse", "HEAD"]);
+  if (before === after) {
+    console.log("already up to date - nothing new to sync");
+    return;
+  }
+  const files = git(["diff", "--name-only", `${before}..${after}`]) || "";
+  const changed = files ? files.split("\n") : [];
+  const scripts = changed.filter((file) => /^src\/.*\.luau?$/.test(file));
+  console.log(`\n${changed.length} file(s) changed, ${scripts.length} of them scripts:`);
+  for (const file of scripts.slice(0, 20)) console.log(`  ${file}`);
+  if (scripts.length > 20) console.log(`  ... and ${scripts.length - 20} more`);
+  console.log(
+    scripts.length
+      ? "\na running `npm run sync` has already pushed these into Studio. Press Play to try them."
+      : "\nno script changes, so Studio will not show anything new."
+  );
+}
+
 function argPort(args) {
   const index = args.indexOf("--port");
   if (index >= 0 && args[index + 1]) return args[index + 1];
@@ -292,6 +421,9 @@ async function main() {
   const command = args[0] && !args[0].startsWith("--") ? args[0] : "serve";
 
   if (command === "doctor") return doctor();
+  if (command === "pull") return pull();
+
+  requireNode();
 
   if (command === "install") {
     const found = findRojo();
@@ -320,6 +452,37 @@ async function main() {
     fs.mkdirSync(path.dirname(path.join(ROOT, out)), { recursive: true });
     return runRojo(rojo, ["build", "default.project.json", "--output", out]);
   }
+  if (command === "syncback") {
+    // The reverse direction: take a place you have been editing inside Studio
+    // and write its scripts back over src/. Only the containers mapped in
+    // default.project.json are touched; Workspace and Lighting are marked
+    // $ignoreUnknownInstances, so hand-built geometry is not serialised.
+    const input = args.slice(1).find((arg) => !arg.startsWith("--"));
+    if (!input) {
+      const guesses = fs
+        .readdirSync(ROOT)
+        .filter((name) => /\.rbxlx?$/.test(name))
+        .map((name) => `  node tools/sync.js syncback ${name}`);
+      console.error("syncback needs the place file to read, e.g.\n  node tools/sync.js syncback place.rbxl");
+      if (guesses.length) console.error(`\nfound in this folder:\n${guesses.join("\n")}`);
+      process.exitCode = 1;
+      return;
+    }
+    if (!fs.existsSync(path.resolve(ROOT, input))) {
+      console.error(`${input} does not exist - save the place from Studio first (File > Save As)`);
+      process.exitCode = 1;
+      return;
+    }
+    const write = args.includes("--write");
+    console.log(
+      write
+        ? `writing ${input} back over src/ - Rojo will ask you to confirm; commit first if you have not`
+        : `dry run: what ${input} would change in src/. Re-run with --write to apply.`
+    );
+    const flags = ["syncback", "default.project.json", "--input", input, "--list"];
+    if (!write) flags.push("--dry-run");
+    return runRojo(rojo, flags);
+  }
   if (command === "serve") {
     const port = argPort(args);
     console.log(`Rojo ${rojo.version} (${rojo.source}) serving NECROTIDE: LAST STAND on port ${port}`);
@@ -327,7 +490,7 @@ async function main() {
     return runRojo(rojo, ["serve", "default.project.json", "--port", port]);
   }
 
-  console.error(`unknown command "${command}" - try: doctor, install, plugin, serve, sourcemap, build`);
+  console.error(`unknown command "${command}" - try: doctor, install, plugin, serve, pull, syncback, sourcemap, build`);
   process.exitCode = 1;
 }
 

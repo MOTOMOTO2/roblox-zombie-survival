@@ -77,7 +77,7 @@ install node` or the installer from nodejs.org if you don't have it. Then, in
 Terminal:
 
 ```bash
-git clone https://github.com/MOTOMOTO2/roblox-zombie-survival.git
+git clone https://github.com/adenyadegar/roblox-zombie-survival.git
 cd roblox-zombie-survival
 npm run setup     # fetches the pinned Rojo into .tools/ and installs the Studio plugin
 npm run live      # serves the code AND auto-pulls new commits - leave this open

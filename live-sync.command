@@ -1,6 +1,6 @@
 #!/bin/bash
 # Double-click this in Finder to run the hands-free setup: it serves the code to
-# Studio AND keeps watching GitHub, so any commit Claude pushes appears in your
+# Studio AND keeps watching GitHub, so any commit pushed from anywhere appears in your
 # open place a few seconds later without you doing anything.
 #
 # Leave the window open while you work. Close it (or press Ctrl+C) to stop.

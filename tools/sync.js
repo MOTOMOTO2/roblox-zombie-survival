@@ -392,7 +392,7 @@ function reportScripts(before, after, indent, cwd) {
 }
 
 // `git pull` with the working tree protected. A Rojo server watching src/ picks
-// the new files up on its own, so this is the whole "get Claude's edits into my
+// the new files up on its own, so this is the whole "get pushed edits into my
 // Studio" step - no restart, no reconnect. `live` does it for you on a timer.
 function pull() {
   if (!git(["rev-parse", "--git-dir"])) {

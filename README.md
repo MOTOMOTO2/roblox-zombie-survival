@@ -11,11 +11,11 @@ asset IDs and no trademarked terminology. See [Originality](#originality).
 
 ---
 
-## Can Claude edit straight into my Studio?
+## Live sync: push a commit, watch it land in Studio
 
-Not literally, and nothing can — but `npm run live` gets you the practical
-version of it: **Claude pushes a commit, and a few seconds later the script has
-changed inside your open place. You do nothing.**
+Nothing can edit an open Studio session from another machine — but `npm run live`
+gets you the practical version of it: **push a commit from anywhere, and a few
+seconds later the script has changed inside your open place. You do nothing.**
 
 ```bash
 npm run live      # leave this one window open; that is the whole workflow
@@ -35,13 +35,13 @@ What it prints when a change arrives:
          live  Rojo is pushing them into Studio now
 ```
 
-Why the "not literally":
+Why it works this way:
 
 - **A Studio session only accepts connections from its own machine.** The Rojo
   server listens on `localhost` — your MacBook — and there is no remote port to
-  reach even if you wanted one. Claude runs on a different machine with no route
-  to yours, so the repo is the channel between us: Claude commits, the watcher on
-  your side pulls.
+  reach even if you wanted one. Code written on another machine has no route
+  to yours, so the repo is the channel: one side commits, the watcher on your
+  machine pulls.
 - **So one process has to be running on your machine.** That is `npm run live`.
   Close the window and the link is gone until you start it again; nothing is
   lost, it just stops updating.
@@ -199,12 +199,12 @@ Worth knowing:
 ## Editing it together
 
 The code lives in the GitHub repo; your Studio place is just a view of it. That
-is what makes two people (or you and Claude) able to work on the same game
+is what makes two people (or two machines) able to work on the same game
 without stepping on each other.
 
 ```
-Claude edits src/ ──> git push ──> npm run live fetches ──> Rojo ──> your Studio
-                                  (every 15s, by itself)
+edit src/ ──> git push ──> npm run live fetches ──> Rojo ──> your Studio
+                            (every 15s, by itself)
 ```
 
 **To take in changes made for you:** nothing, if `npm run live` is running — it
@@ -238,10 +238,10 @@ Then whoever is working with you pulls, exactly the same way.
 Two honest limits:
 
 - **Nobody can reach into your Studio session but you.** The Rojo server listens
-  on `localhost`, i.e. only your MacBook, and that is the right setting. Claude
-  edits files and commits them; the watcher in `npm run live` (or a manual
+  on `localhost`, i.e. only your MacBook, and that is the right setting. Edits
+  made elsewhere are committed; the watcher in `npm run live` (or a manual
   `npm run pull`) is the step that carries them across — which is as direct as it
-  gets, see [Can Claude edit straight into my Studio?](#can-claude-edit-straight-into-my-studio).
+  gets, see [Live sync](#live-sync-push-a-commit-watch-it-land-in-studio).
   Roblox's own Team Create is the tool for two people editing one live place, and
   it is separate from this.
 - **Git is the source of truth, not the place file.** Anything you build by hand
@@ -574,7 +574,7 @@ Decisions taken without asking, all easy to reverse:
   travel as commits and land in Studio via `npm run live` or `npm run pull`.
   Roblox Team Create is the alternative if you want two people in one live place,
   and it does not conflict with any of this.
-- **"Can Claude edit directly in my Studio" is taken to mean hands-free, not
+- **"Edit directly in my Studio" is taken to mean hands-free, not
   literally remote.** No remote process can attach to a Studio session, so
   `npm run live` polls the git remote on your machine instead — the closest
   faithful answer. Polling every 15 seconds is a guess at the right trade between
